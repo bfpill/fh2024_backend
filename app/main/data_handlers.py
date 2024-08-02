@@ -25,6 +25,7 @@ def fetch_business_hist(business_id: str):
     biz_ref = db.collection('businesses').document(business_id)
     doc = biz_ref.get()
     data = doc.to_dict()
+    return data
     
     
 def write_business_hist(business_id: str, data):

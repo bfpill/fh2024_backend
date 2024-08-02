@@ -10,5 +10,26 @@ class BusinessData(BaseModel):
     goals: str
     websiteUrl: str
     cssFile: str
+    
+class ABTestInfo(BaseModel):
+    businessName: str
+    goals: str
+    component: str
+    
+class TaskData(BaseModel):
+    businessName: str
+    goals: str
+    component_id: str
   
-  
+class TaskNode(BaseModel):
+    timeStartTest: str
+    timeEndTest: str
+    businessName: str
+    component_css: str
+    parent_node_id: uuid4 
+    hits: int
+    engagement_total: int
+    score: int
+    node_id: uuid4
+    
+    

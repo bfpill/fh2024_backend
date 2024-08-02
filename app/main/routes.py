@@ -4,12 +4,18 @@ from fastapi import APIRouter, status, HTTPException, Header
 from logging import getLogger
 from app.main.settings import Settings
 from app.main.types import *
+from app.main.settings import getOpenai
+from uuid import uuid4
+import time
+
 
 from firebase_admin import firestore
 db = firestore.client()
 
 router = APIRouter()
 logger = getLogger()
+client = getOpenai()
+
 # settings = Settings()
 
 @router.get('/test/{business_id}')
@@ -52,7 +58,7 @@ def respond_to_site_hit(business_id):
 
   b_data = fetch_business_hist(business_id)
 
-  ret_css = b_data["default_css"]
+  ret_css, task_id, node_id = b_data["default_css"], b_data["task_id"], b_data["node_id"]
   
   # no test has been started, do nothing
   if not b_data["current_tests"]:
@@ -84,8 +90,51 @@ def respond_to_site_hit(business_id):
     
   write_business_hist(business_id, b_data)
     
-  return ret_css
+  return ret_css, task_id, node_id
 
+
+
+def extract_component(business_id, component_id):
+  biz_data = fetch_business_hist(business_id)
+  index_css = biz_data["index_css"]
+  
+  
+  import re
+  pattern = rf'\.{component_id}\s*{{([^}}]+)}}'
+  match = re.search(pattern, index_css, re.DOTALL)
+    
+  if match:
+    css_class = match.group(0)
+    return css_class.strip()
+  else:
+    return None
+  
+
+# we need to implement a tree and eliminate all but top k
+def new_search_tree(business_id, task_id): 
+    biz_ref = db.collection('businesses').document(business_id)
+    task_ref = db.collection('businesses').document(business_id).collection("tasks").document(task_id)
+    
+    task_data = task_ref.get()
+    task_data = task_data.to_dict()
+    
+    parent_node: TaskNode = {
+      "timeStartTest": time.time(),
+      "timeEndTest": None,
+      "business": business_id,
+      "component_css": extract_component(business_id, task_data["component_id"]),
+      "parent_node_id": None,
+      "hits": 0, 
+      "engagement_total": 0,
+      "score": 0, 
+      "node_id": uuid4()
+    }
+    
+    task_ref.set({
+      "parent_node": parent_node
+    }, merge=True)
+  
+  
   
 
 def fork_test(business_id):
@@ -102,11 +151,46 @@ def fork_test(business_id):
   
   
   pass
+
+
+
+async def generate_new_components(task, node: TaskNode):
+  task_history = task
+  
+  
   
 @router.post('/start_ab_test')
-async def start_ab_test(business_id):
+async def start_ab_test(task_info: ABTestInfo):
   # decide what test to do 
-  pass
+  b_data = fetch_business_hist(task_info.businessName)
+  
+  # dummy prompt for now
+  # later we need to integrate history
+  json_structure = {"css": [
+    ".class1: ...",
+    ".class2: ...",
+    ".class3: ...",
+    ]}
+  
+  prompt = f'''Please change the css for component {task_info.component} 
+  so that it is a little more {task_info.goals} and return the css in a JSON object in the format: 
+    {str(json_structure)}
+  Here is the current css: 
+    {str(task_info)}
+  '''
+  
+  
+  completion = await client.chat.completions.create(
+    response_format={ "type": "json_object" },
+    messages=[{ 
+      "role": "system", 
+      "content": prompt 
+    }], 
+    model="gpt-4-0125-preview",
+  )
+
+  return prompt 
+
 
 
 def get_css(business_id): 

@@ -1,6 +1,8 @@
 from openai import AsyncOpenAI
 from dotenv import load_dotenv
 from pydantic_settings import BaseSettings
+from openai import AsyncOpenAI
+
 
 import firebase_admin
 from firebase_admin import credentials
@@ -25,6 +27,10 @@ client = AsyncOpenAI(api_key=settings.openai_api_key)
 
 cred = credentials.Certificate("app/firebase_config/firebase_cred.json")
 firebase_admin.initialize_app(cred, {'storageBucket': 'fh2024.appspot.com'})
+
+settings = Settings()
+client = AsyncOpenAI(api_key=settings.openai_api_key)
+
 
 # firebase_credentials = json.loads(firebase_credentials_json)
 
