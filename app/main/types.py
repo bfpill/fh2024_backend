@@ -10,6 +10,11 @@ class BusinessData(BaseModel):
     goals: str
     websiteUrl: str
     cssFile: str
+
+class InteractionDto(BaseModel):
+    businessId: str
+    taskId: str
+    nodeId: str
     
 class ABTestInfo(BaseModel):
     businessName: str

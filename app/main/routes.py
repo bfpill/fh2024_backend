@@ -1,5 +1,5 @@
 from collections import defaultdict
-from app.main.data_handlers import fetch_business_hist, write_business_hist
+from app.main.data_handlers import fetch_business_hist, write_business_hist, increment_interaction_service
 from fastapi import APIRouter, status, HTTPException, Header
 from logging import getLogger
 from app.main.settings import Settings
@@ -33,6 +33,14 @@ def handle_page_request(business_id):
     raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
     
   return css_file
+
+@router.post('/test/{business_id}/{task_id}/{node_id}')
+async def increment_interaction(business_id, task_id, node_id):
+    try:
+        increment_interaction_service(business_id, task_id, node_id)
+        return {"message": "interactions incremented successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
   
 @router.post('/sign_up')
 async def sign_up_business(data: BusinessData):

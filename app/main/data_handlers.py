@@ -32,3 +32,9 @@ def write_business_hist(business_id: str, data):
     biz_ref = db.collection('businesses').document(business_id)
     biz_ref.set(data)
 
+def increment_interaction_service(business_id: str, task_id: str, node_id: str):
+  node_ref = db.collection('businesses').document(business_id).collection('tasks').document(task_id).collection('nodes').document(node_id)
+
+  node_ref.update({
+      "interactions": firestore.Increment(1)
+  })
