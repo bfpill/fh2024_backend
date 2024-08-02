@@ -21,8 +21,8 @@ def write_fb(id: str, data):
   return data 
 
 
-def fetch_business_hist(business_id: str):
-    biz_ref = db.collection('businesses').document(business_id)
+def fetch_business_hist(businessName: str):
+    biz_ref = db.collection('businesses').document(businessName)
     doc = biz_ref.get()
     data = doc.to_dict()
     return data
@@ -31,10 +31,13 @@ def fetch_business_hist(business_id: str):
 def write_business_hist(business_id: str, data):
     biz_ref = db.collection('businesses').document(business_id)
     biz_ref.set(data)
+    
 
 def increment_interaction_service(business_id: str, task_id: str, node_id: str):
   node_ref = db.collection('businesses').document(business_id).collection('tasks').document(task_id).collection('nodes').document(node_id)
 
-  node_ref.update({
-      "interactions": firestore.Increment(1)
-  })
+  if node_ref:
+    node_ref.update({
+        "interactions": firestore.Increment(1)
+    })
+

@@ -7,6 +7,8 @@ from app.main.types import *
 from app.main.settings import getOpenai
 from uuid import uuid4
 import time
+import cssutils
+from io import StringIO
 
 
 from firebase_admin import firestore
@@ -34,6 +36,7 @@ def handle_page_request(business_id):
     
   return css_file
 
+
 @router.post('/test/{business_id}/{task_id}/{node_id}')
 async def increment_interaction(business_id, task_id, node_id):
     try:
@@ -45,14 +48,14 @@ async def increment_interaction(business_id, task_id, node_id):
 @router.post('/sign_up')
 async def sign_up_business(data: BusinessData):
     try:
-        new_doc_ref = db.collection('businesses').document()
+        new_doc_ref = db.collection('businesses').document(data.businessName)
         
         business_data = {
             "name": data.businessName,
             "goals": data.goals,
             "websiteUrl": data.websiteUrl,
             "id": new_doc_ref.id, 
-            "cssFile": data.cssFile,
+            "index_css": data.index_css,
         }
         
         new_doc_ref.set(business_data)
@@ -101,35 +104,55 @@ def respond_to_site_hit(business_id):
     
   return ret_css, task_id, node_id
 
-def extract_component(business_id, component_id):
-  biz_data = fetch_business_hist(business_id)
-  index_css = biz_data["index_css"]
-  
-  
-  import re
-  pattern = rf'\.{component_id}\s*{{([^}}]+)}}'
-  match = re.search(pattern, index_css, re.DOTALL)
+
+
+# currently broken
+# fix logging first
+def extract_component(css_content, component_id):
+    css_content_dummy = """
+  /* Reset some basic elements */
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  .box {
+    float: left;
+    width: 30%;
+    padding: 10px;
+    text-align: center;
+  }
+
+  /* More CSS rules */
+  """
+ 
+    # Parse the CSS content
+    sheet = cssutils.parseString(css_content)
     
-  if match:
-    css_class = match.group(0)
-    return css_class.strip()
-  else:
+    # Iterate through all rules in the stylesheet
+    for rule in sheet:
+        if rule.type == rule.STYLE_RULE:
+            # Check if the selector matches our component_id
+            if f'.{component_id}' in rule.selectorText:
+                # Return the entire rule as a string
+                return rule.cssText.strip()
+    
     return None
   
 
 # we need to implement a tree and eliminate all but top k
-def new_search_tree(businessName, task_id): 
-    biz_ref = db.collection('businesses').document(businessName)
+def new_search_tree(businessName, task_id, component_css): 
     task_ref = db.collection('businesses').document(businessName).collection("tasks").document(task_id)
     
     task_data = task_ref.get()
     task_data = task_data.to_dict()
-    
+
     root_node: TaskNode = {
       "timeStartTest": time.time(),
       "timeEndTest": None,
       "businessName": businessName,
-      "component_css": extract_component(businessName, task_data["component_id"]),
+      "component_css": component_css ,
       "parent_node_id": None,
       "hits": 0, 
       "engagement_total": 0,
@@ -239,11 +262,20 @@ async def generate_new_components(goal, parent_node_css, previously_tested_compo
 
   
 @router.post('/start_ab_test')
-async def start_ab_test(task_info: ABTestInfo):
-  businessName = task_info["businessName"]
+async def start_ab_test(task_info: TaskData):
+  businessName = task_info.businessName
   # decide what test to do 
-  b_data = fetch_business_hist(businessName)
-  new_search_tree(businessName, task_info)
+  # b_data = fetch_business_hist(businessName)
+  task_ref = db.collection('businesses').document(businessName).collection('tasks').document(task_info.task_id)
+  task_ref.set(task_info.model_dump())
+  
+    # if not component_id: 
+      # raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str("No component_id found for task"))
+  
+  current_component = extract_component(businessName, task_info.component_id)
+  return current_component, task_info.component_id
+  new_search_tree(businessName, task_info.task_id, current_component)
+  
   
 
 # dont know if we still need this
