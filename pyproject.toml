@@ -1,0 +1,22 @@
+[tool.poetry]
+name = "backend-fh"
+version = "0.1.0"
+description = "fh2024"
+authors = ["bfpill <max@v3rv.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+fastapi = "^0.111.1"
+uvicorn = "^0.30.4"
+openai = "^1.37.1"
+pydantic-settings = "^2.4.0"
+firebase-admin = "^6.5.0"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+start = "uvicorn main:app --reload"
