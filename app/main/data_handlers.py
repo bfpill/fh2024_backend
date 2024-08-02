@@ -19,3 +19,15 @@ def write_fb(id: str, data):
   map_ref = db.collection('test').document(id)
   map_ref.set(data)
   return data 
+
+
+def fetch_business_hist(business_id: str):
+    biz_ref = db.collection('businesses').document(business_id)
+    doc = biz_ref.get()
+    data = doc.to_dict()
+    
+    
+def write_business_hist(business_id: str, data):
+    biz_ref = db.collection('businesses').document(business_id)
+    biz_ref.set(data)
+
