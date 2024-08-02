@@ -54,6 +54,7 @@ async def sign_up_business(data: BusinessData):
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
       
 
+# we need to change updates but yeah
 def respond_to_site_hit(business_id):
 
   b_data = fetch_business_hist(business_id)
@@ -92,8 +93,6 @@ def respond_to_site_hit(business_id):
     
   return ret_css, task_id, node_id
 
-
-
 def extract_component(business_id, component_id):
   biz_data = fetch_business_hist(business_id)
   index_css = biz_data["index_css"]
@@ -111,37 +110,30 @@ def extract_component(business_id, component_id):
   
 
 # we need to implement a tree and eliminate all but top k
-def new_search_tree(business_id, task_id): 
-    biz_ref = db.collection('businesses').document(business_id)
-    task_ref = db.collection('businesses').document(business_id).collection("tasks").document(task_id)
+def new_search_tree(businessName, task_id): 
+    biz_ref = db.collection('businesses').document(businessName)
+    task_ref = db.collection('businesses').document(businessName).collection("tasks").document(task_id)
     
     task_data = task_ref.get()
     task_data = task_data.to_dict()
     
-    parent_node: TaskNode = {
+    root_node: TaskNode = {
       "timeStartTest": time.time(),
       "timeEndTest": None,
-      "business": business_id,
-      "component_css": extract_component(business_id, task_data["component_id"]),
+      "businessName": businessName,
+      "component_css": extract_component(businessName, task_data["component_id"]),
       "parent_node_id": None,
       "hits": 0, 
       "engagement_total": 0,
       "score": 0, 
-      "node_id": uuid4()
+      "node_id": 0,
+      "children": []
     }
     
-    task_ref.set({
-      "parent_node": parent_node
-    }, merge=True)
-  
-  
-  
+    node_ref = db.collection('businesses').document(businessName).collection("tasks").document(task_id).collection("nodes").document(root_node["node_id"])
 
-def fork_test(business_id):
-  b_data = fetch_business_hist(business_id)
-  A, B = b_data["current_tests"]["A"], b_data["current_tests"]["B"]
-  
-  
+    node_ref.set(root_node)
+    
   # this really is going to be the nitty gritty of making the product good
   # we need to do a directed search . the direction we move in has to be well bounded but also free
   # how free the algorithm is really depends on how large we want our sample size to be
@@ -149,36 +141,82 @@ def fork_test(business_id):
   # then iteratively move inwards? 
   # or should we slowly test larger and larger sizes? 
   
-  
-  pass
+def fork_test(businessName, task_id, node_id):
+    db = firestore.client()
+    task_ref = db.collection('businesses').document(businessName).collection('tasks').document(task_id)
+    nodes_ref = task_ref.collection('nodes')
+
+    nodes = []
+    for doc in nodes_ref.stream():
+        node = doc.to_dict()
+        node['node_id'] = doc.id 
+        nodes.append(node)
+
+    fork_node = next((node for node in nodes if node['node_id'] == node_id), None)
+    
+    b_data = fetch_business_hist(businessName)
+    
+    previously_tested_components = [node["component_css"] for node in nodes]
+        
+    if nodes and fork_node: 
+        new_components = generate_new_components(businessName, b_data["goals"],
+                                                 fork_node["component_css"], previously_tested_components)
+        new_nodes = []
+        for component_css in new_components: 
+            new_node = {
+                "timeStartTest": int(time.time()),
+                "timeEndTest": None,
+                "business": businessName,
+                "component_css": component_css,
+                "parent_node_id": node_id,
+                "hits": 0, 
+                "engagement_total": 0,
+                "score": 0, 
+                "children": []
+            }
+            new_nodes.append(new_node)
+
+
+        for i, new_node in enumerate(new_nodes):
+            new_doc_ref = nodes_ref.document() 
+            new_node['node_id'] = len(nodes) + i
+            new_doc_ref.set(new_node)
+
+        fork_node_ref = nodes_ref.document(node_id)
+        fork_node_ref.update({
+            "children": firestore.ArrayUnion([node['node_id'] for node in new_nodes])
+        })
+
+        return new_nodes
+    else:
+        return None
 
 
 
-async def generate_new_components(task, node: TaskNode):
-  task_history = task
-  
-  
-  
-@router.post('/start_ab_test')
-async def start_ab_test(task_info: ABTestInfo):
-  # decide what test to do 
-  b_data = fetch_business_hist(task_info.businessName)
+async def generate_new_components(goal, parent_node_css, previously_tested_components):
   
   # dummy prompt for now
   # later we need to integrate history
   json_structure = {"css": [
-    ".class1: ...",
-    ".class2: ...",
-    ".class3: ...",
+    ".className: version 1",
+    ".className: version 2",
+    "...",
+    ".className: versionN",
     ]}
+
+  num_to_gen = 5
+  changeableVars = "Color, Size"
   
-  prompt = f'''Please change the css for component {task_info.component} 
-  so that it is a little more {task_info.goals} and return the css in a JSON object in the format: 
+  prompt = f'''Please generate {num_to_gen} components that are similar to {parent_node_css}.
+  Return the css in a JSON object in the format: 
     {str(json_structure)}
   Here is the current css: 
-    {str(task_info)}
+    {str(parent_node_css)}
+  Please only change these variables: 
+    {changeableVars}
+  Ensure that you do not make something that is similar to any of: 
+    {str(changeableVars)}
   '''
-  
   
   completion = await client.chat.completions.create(
     response_format={ "type": "json_object" },
@@ -189,10 +227,18 @@ async def start_ab_test(task_info: ABTestInfo):
     model="gpt-4-0125-preview",
   )
 
-  return prompt 
+  return completion
 
+  
+@router.post('/start_ab_test')
+async def start_ab_test(task_info: ABTestInfo):
+  businessName = task_info["businessName"]
+  # decide what test to do 
+  b_data = fetch_business_hist(businessName)
+  new_search_tree(businessName, task_info)
+  
 
-
+# dont know if we still need this
 def get_css(business_id): 
   # we are going to have to spread out the history into multiple tables later and write a 
   # function for getting and combining history into something meaningful
