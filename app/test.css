@@ -1,0 +1,92 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color-scheme: light dark;
+  color: #ff0000;
+  background-color: #ff0000;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  color: #ff0000;
+  background-color: #ff0000;
+}
+
+a {
+  font-weight: 500;
+  color: #ff0000;
+  text-decoration: inherit;
+}
+
+a:hover {
+  color: #ff0000;
+}
+
+h1 {
+  font-size: 3.2em;
+  line-height: 1.1;
+  color: #ff0000;
+}
+
+button {
+  border-radius: 8px;
+  border: 1px solid #ff0000;
+  padding: 0.6em 1.2em;
+  font-size: 1em;
+  font-weight: 500;
+  font-family: inherit;
+  background-color: #ff0000;
+  color: #ff0000;
+  cursor: pointer;
+  transition: border-color 0.25s;
+}
+
+button:hover {
+  border-color: #ff0000;
+}
+
+button:focus,
+button:focus-visible {
+  outline: 4px auto #ff0000;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color: #ff0000;
+    background-color: #ff0000;
+  }
+  a:hover {
+    color: #ff0000;
+  }
+  button {
+    background-color: #ff0000;
+  }
+}
+
+/* Custom styles for the startup homepage */
+.startup-hero {
+  background: #ff0000;
+}
+
+.startup-nav-link {
+  @apply py-2 px-2 font-medium text-red-500 rounded hover:bg-red-500 hover:text-red-500 transition duration-300;
+}
+
+.startup-button {
+  @apply bg-red-500 font-bold rounded-full py-4 px-8 shadow-lg uppercase tracking-wider hover:bg-red-600 transition duration-300 text-red-500;
+}
+
+.startup-feature-card {
+  @apply bg-red-500 rounded shadow-lg p-6 text-red-500;
+}
