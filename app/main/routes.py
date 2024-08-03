@@ -1,7 +1,7 @@
 from collections import defaultdict
 import json
 from app.main.data_handlers import fetch_business_hist, write_business_hist, update_clicks_service, update_hits_service, fetch_business_analytics
-from fastapi import APIRouter, status, HTTPException, Header
+from fastapi import APIRouter, status, HTTPException
 from logging import getLogger
 from app.main.settings import Settings
 from app.main.types import *
@@ -15,8 +15,6 @@ import asyncio
 from openai import AsyncOpenAI
 
 client = AsyncOpenAI()
-
-
 
 from firebase_admin import firestore
 db = firestore.client()
@@ -64,6 +62,7 @@ async def update_clicks(business_id, task_id, node_id):
         return {"message": "interactions incremented successfully"}
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+      
   
 @router.post('/test/{business_id}/{task_id}/{node_id}/hits')
 async def update_hits(business_id, task_id, node_id):
@@ -149,7 +148,6 @@ async def respond_to_site_hit(business_id):
 
   nodes = []
   for doc in nodes_ref.stream():
-    print("k")
     node = doc.to_dict()
     print(node)
 
@@ -176,6 +174,7 @@ async def respond_to_site_hit(business_id):
   # can generate the new AB test components before we actually reach the hit limit. 
   # so we'll have to try and guess which will win a little early and have a couple redundant serves. 
   # this should async update the A B test and when it is finished update the DB
+  print("177")
   if not minimal_hit_node:
     k = 1
     print("k")
@@ -268,11 +267,6 @@ async def fork_test(businessName, task_id, nodes, fork_node):
         return None
 
 
-  
-# for chopping time into intervals
-def get_interval():
-  pass
-
 # we need to implement a tree and eliminate all but top k
 def new_search_tree(businessName, task_id, component_css): 
     task_ref = db.collection('businesses').document(businessName).collection("tasks").document(task_id)
@@ -286,7 +280,7 @@ def new_search_tree(businessName, task_id, component_css):
       "businessName": businessName,
       "component_css": component_css,
       "parent_node_id": None,
-      "hits": [], 
+      "hits": 0, 
       "clicks": {},
       "score": 0, 
       "node_id": "0",
@@ -332,6 +326,7 @@ async def generate_new_components(goal, parent_node_css, previously_tested_compo
         {changeableVars}
     Ensure that you do not make something that is similar to any of: 
         {str(previously_tested_components)}
+    Keep the classname exactly the same as the original.
     '''
     
     print(prompt)
@@ -394,7 +389,7 @@ def extract_component(css_content, component_id):
 
     for rule in sheet:
       if rule.type == rule.STYLE_RULE:
-        if f'.{component_id}' in rule.selectorText or rule.selectorText == component_id:
+        if rule.selectorText == f'.{component_id}' or rule.selectorText == component_id:
             print(rule.selectorText)
             return rule.cssText.strip()
     

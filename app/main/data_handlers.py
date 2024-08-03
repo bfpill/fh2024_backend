@@ -73,14 +73,16 @@ def write_business_hist(business_id: str, data):
     biz_ref.set(data)
 
 def update_clicks_service(business_id: str, task_id: str, node_id: str, aligned_time: str):
-  node_ref = db.collection('businesses').document(business_id).collection('tasks').document(task_id).collection('nodes').document(node_id)
+  biz_ref = db.collection('businesses').document(business_id)
+  node_ref = biz_ref.collection('tasks').document(task_id).collection('nodes').document(node_id)
 
   node = node_ref.get()
 
   if node.exists:
       data = node.to_dict()
-      clicks = data.get('clicks', {})
+      clicks = data["clicks"]
       
+      print(clicks)
       if aligned_time in clicks:
         # Increment the counts
         clicks[aligned_time] = clicks[aligned_time] + 1
