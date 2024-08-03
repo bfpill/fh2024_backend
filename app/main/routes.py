@@ -1,5 +1,5 @@
 import json
-from app.main.data_handlers import extract_component, fetch_business_hist, select_top_k_nodes, write_business_hist, update_clicks_service, update_hits_service, fetch_business_analytics
+from app.main.data_handlers import extract_component, fetch_business_hist, round_to_nearest_interval, select_top_k_nodes, write_business_hist, update_clicks_service, update_hits_service, fetch_business_analytics
 from fastapi import APIRouter, status, HTTPException
 from logging import getLogger
 from app.main.settings import Settings
@@ -48,12 +48,13 @@ def get_business_analytics(business_id):
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
-@router.post('/test/{business_id}/{task_id}/{node_id}/clicks')
+@router.post('/clicks/{business_id}/{task_id}/{node_id}')
 async def update_clicks(business_id, task_id, node_id):
     try:
         timestamp = time.time()
         INTERVAL_MINUTES = 5 # this can be changed depending on what time intervals we want to show on the frontend
         aligned_time = str(int(round_to_nearest_interval(timestamp, INTERVAL_MINUTES)))
+        print(aligned_time)
         update_clicks_service(business_id, task_id, node_id, aligned_time)
 
         return {"message": "interactions incremented successfully"}
@@ -61,7 +62,7 @@ async def update_clicks(business_id, task_id, node_id):
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
       
   
-@router.post('/test/{business_id}/{task_id}/{node_id}/hits')
+@router.post('/hits/{business_id}/{task_id}/{node_id}')
 async def update_hits(business_id, task_id, node_id):
     try:
         update_hits_service(business_id, task_id, node_id)
@@ -198,10 +199,8 @@ async def respond_to_site_hit(business_id):
 
   write_business_hist(business_id, b_data)
   
-  node_id = None
-  if minimal_hit_node: 
-    node_id = minimal_hit_node["node_id"]
-    
+  node_id = minimal_hit_node["node_id"] if minimal_hit_node else 0
+
   print(node_id)
   return index_css, current_task_id, node_id
 
@@ -211,11 +210,11 @@ async def fork_test(businessName, task_id, nodes, fork_node):
     
     try:
         b_data = fetch_business_hist(businessName)
-        previously_tested_components = [node["component_css"] for node in nodes]
+        negative_examples = [node["component_css"] for node in nodes if node["node_id"] != fork_node["node_id"]]
         if nodes and fork_node:
             print("got here")
             new_components = await generate_new_components(b_data["goals"],
-                                                    fork_node["component_css"], previously_tested_components)
+                                                    fork_node["component_css"], negative_examples)
             new_nodes = []
             for i, component_css in enumerate(new_components):
                 print(component_css)
@@ -226,13 +225,13 @@ async def fork_test(businessName, task_id, nodes, fork_node):
                     "component_css": component_css,
                     "parent_node_id": fork_node['node_id'],
                     "hits": 0,
-                    "clicks": [],
+                    "clicks": {},
                     "engagement_total": 0,
                     "click_count": 0,
                     "score": 0,
                     "children": [],
                     "status": 'alive',
-                    "node_id": str(len(previously_tested_components) + i)
+                    "node_id": str(len(nodes) + i)
                 }
                 new_nodes.append(new_node)
 
@@ -299,18 +298,19 @@ def new_search_tree(businessName, task_id, component_css):
   # or should we slowly test larger and larger sizes? 
 
 
-async def generate_new_components(goal, parent_node_css, previously_tested_components):
-    print("attempting generation")
+async def generate_new_components(goals, parent_node_css, negative_examples, num_to_gen=5):
+    print("Attempting CSS component generation")
+    
     json_structure = {"css": [
         ".className: version 1",
         ".className: version 2",
         "...",
         ".className: versionN",
     ]}
-
+    
     num_to_gen = 5
     changeableVars = "Color, Size"
-    
+
     prompt = f'''Please generate {num_to_gen} components that are similar to {parent_node_css}.
     Return the css in a JSON object in the format: 
         {str(json_structure)}
@@ -319,23 +319,24 @@ async def generate_new_components(goal, parent_node_css, previously_tested_compo
     Please only change these variables: 
         {changeableVars}
     Ensure that you do not make something that is similar to any of: 
-        {str(previously_tested_components)}
+        {str(negative_examples)}
     Keep the classname exactly the same as the original.
-    '''
+    Be as creative as possible with the design while adhering to these guidelines.'''
     
+    print("Prompt for CSS component generation:")
     print(prompt)
-
+    
     try:
         completion = await client.chat.completions.create(
             response_format={ "type": "json_object" },
             messages=[{ 
                 "role": "system", 
-                "content": prompt 
+                "content": prompt
             }],
             model="gpt-4-0125-preview",
+            temperature=0.75
         )
 
-        
         # Assuming the completion.choices[0].message.content is a JSON string
         new_components = json.loads(completion.choices[0].message.content)['css']
         return new_components
@@ -374,5 +375,39 @@ async def start_ab_test(task_info: TaskData):
   
 
 
-  
+@router.get('/get_biz_info/{businessName}')
+async def get_business_info(businessName: str) -> Dict:
+    biz_ref = db.collection('businesses').document(businessName)
+    biz_doc = biz_ref.get()
+
+    if not biz_doc.exists:
+        raise HTTPException(status_code=404, detail="Business not found")
+
+    biz_data = biz_doc.to_dict()
+
+    tasks_ref = biz_ref.collection('tasks')
+    tasks_docs = tasks_ref.stream()
+
+    tasks_data = []
+
+    for task_doc in tasks_docs:
+        task_data = task_doc.to_dict()
+        task_data['id'] = task_doc.id
+
+        nodes_ref = task_doc.reference.collection('nodes')
+        nodes_docs = nodes_ref.stream()
+
+        nodes_data = []
+
+        for node_doc in nodes_docs:
+            node_data = node_doc.to_dict()
+            node_data['id'] = node_doc.id
+            nodes_data.append(node_data)
+
+        task_data['nodes'] = nodes_data
+        tasks_data.append(task_data)
+
+    biz_data['tasks'] = tasks_data
+
+    return biz_data
   
