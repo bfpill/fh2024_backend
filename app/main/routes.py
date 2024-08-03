@@ -7,6 +7,7 @@ from app.main.types import *
 from app.main.settings import getOpenai
 from uuid import uuid4
 import time
+from datetime import datetime, timedelta
 
 
 from firebase_admin import firestore
@@ -37,7 +38,11 @@ def handle_page_request(business_id):
 @router.post('/test/{business_id}/{task_id}/{node_id}')
 async def increment_interaction(business_id, task_id, node_id):
     try:
-        increment_interaction_service(business_id, task_id, node_id)
+        timestamp = time.time()
+        INTERVAL_MINUTES = 5 # this can be changed depending on what time intervals we want to show on the frontend
+        aligned_time = str(int(round_to_nearest_interval(timestamp, INTERVAL_MINUTES)))
+        increment_interaction_service(business_id, task_id, node_id, aligned_time)
+
         return {"message": "interactions incremented successfully"}
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
@@ -60,7 +65,17 @@ async def sign_up_business(data: BusinessData):
         return {"message": "Business information successfully added", "businessId": new_doc_ref.id}
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
-      
+    
+def round_to_nearest_interval(seconds, interval_minutes):
+    dt = datetime.fromtimestamp(seconds)
+    # Calculate the number of seconds since the start of the hour
+    total_seconds = (dt.minute * 60) + dt.second
+    interval_seconds = interval_minutes * 60
+    # Round to the nearest interval
+    rounded_seconds = (total_seconds + interval_seconds // 2) // interval_seconds * interval_seconds
+    rounded_time = dt.replace(minute=0, second=0, microsecond=0) + timedelta(seconds=rounded_seconds)
+    # Convert back to timestamp
+    return rounded_time.timestamp()
 
 # we need to change updates but yeah
 def respond_to_site_hit(business_id):

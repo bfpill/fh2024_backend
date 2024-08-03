@@ -32,8 +32,26 @@ def write_business_hist(business_id: str, data):
     biz_ref = db.collection('businesses').document(business_id)
     biz_ref.set(data)
 
-def increment_interaction_service(business_id: str, task_id: str, node_id: str):
+def increment_interaction_service(business_id: str, task_id: str, node_id: str, aligned_time: str):
   node_ref = db.collection('businesses').document(business_id).collection('tasks').document(task_id).collection('nodes').document(node_id)
+
+  node = node_ref.get()
+
+  if node.exists:
+      data = node.to_dict()
+      clicks = data.get('clicks', {})
+      
+      if aligned_time in clicks:
+        # Increment the counts
+        clicks[aligned_time] = clicks[aligned_time] + 1
+        # Update the document with modified clicks dictionary
+        node_ref.update({'clicks': clicks})
+      else:
+        clicks[aligned_time] = 1
+        node_ref.update({'clicks': clicks})
+      print("Counts incremented successfully.")
+  else:
+      print("Document does not exist.")
 
   node_ref.update({
       "interactions": firestore.Increment(1)
