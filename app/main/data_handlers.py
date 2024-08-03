@@ -80,7 +80,7 @@ def update_clicks_service(business_id: str, task_id: str, node_id: str, aligned_
 
   if node.exists:
       data = node.to_dict()
-      clicks = data["clicks"]
+      clicks = data.get('clicks', {})
       
       print(clicks)
       if aligned_time in clicks:
