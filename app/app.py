@@ -2,8 +2,6 @@ from uuid import uuid4
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
-from logging import getLogger
-from app.logconfig import setup_rich_logger
 from app.main import routes
 from app.main.settings import Settings, settings
 
@@ -13,12 +11,9 @@ def get_app() -> FastAPI:
   app = FastAPI(
     description="FH2024", version="0.0.1",
   )
-  setup_rich_logger()
   return app
 
 app = get_app()
-
-logger = getLogger()
 
 app.add_middleware(
     CORSMiddleware,

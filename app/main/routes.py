@@ -8,6 +8,8 @@ from app.main.settings import getOpenai
 from uuid import uuid4
 import time
 from datetime import datetime, timedelta
+import cssutils
+from io import StringIO
 
 
 from firebase_admin import firestore
@@ -27,13 +29,16 @@ def handle_page_request(business_id):
   # if we aren't in the middle of one we need to start one
   # we can probably abstract that all away to one function
   try:
-    css_file = respond_to_site_hit(business_id)
+    css_file, task_id, node_id = respond_to_site_hit(business_id)
 
   except Exception as e: 
     # logger.error(f"Error retrieving user books: {e}")
     raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
     
-  return css_file
+  print(css_file != None, task_id, node_id)
+  return {"css_file": css_file, "task_id": task_id, "node_id":node_id}
+
+
 
 @router.post('/test/{business_id}/{task_id}/{node_id}')
 async def increment_interaction(business_id, task_id, node_id):
@@ -47,17 +52,19 @@ async def increment_interaction(business_id, task_id, node_id):
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
   
+
+
 @router.post('/sign_up')
 async def sign_up_business(data: BusinessData):
     try:
-        new_doc_ref = db.collection('businesses').document()
+        new_doc_ref = db.collection('businesses').document(data.businessName)
         
         business_data = {
             "name": data.businessName,
             "goals": data.goals,
             "websiteUrl": data.websiteUrl,
             "id": new_doc_ref.id, 
-            "cssFile": data.cssFile,
+            "index_css": data.index_css,
         }
         
         new_doc_ref.set(business_data)
@@ -79,81 +86,92 @@ def round_to_nearest_interval(seconds, interval_minutes):
 
 # we need to change updates but yeah
 def respond_to_site_hit(business_id):
+  # hard_coded for now
+  test_size = 10
+  # we need to count clicks with timestamps
 
   b_data = fetch_business_hist(business_id)
-
-  ret_css, task_id, node_id = b_data["default_css"], b_data["task_id"], b_data["node_id"]
-  
+  if not b_data: 
+    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str("Bad Biz Id"))
+    
+  index_css = b_data["index_css"]
   # no test has been started, do nothing
-  if not b_data["current_tests"]:
-    return ret_css
-
-
-  A, B = b_data["current_tests"]["A"], b_data["current_tests"]["B"]
-
-   # this is our default 
-   # will give a consitent baseline for now? can be changed later
+  if not "current_task_id" in b_data:
+    return index_css, None, None
   
-  if A["hit_count"] > b_data["test_size"] and B["hit_count"] > b_data["test_size"]:
-    # then we need to start a new test and initialize it
-    # ideally this needs to be flagged as we get close to the hit limit for the test so that we 
-    # can generate the new AB test components before we actually reach the hit limit. 
-    # so we'll have to try and guess which will win a little early and have a couple redundant serves. 
-    
-    # this should async update the A B test and when it is finished update the DB
+  # this is our default 
+  # will give a consitent baseline for now? can be changed later
+  current_task_id = b_data["current_task_id"]
+
+  print(index_css, current_task_id)
+  
+  task_ref = db.collection('businesses').document(business_id).collection('tasks').document(current_task_id)
+  nodes_ref = task_ref.collection('nodes')
+  
+  minimal_hit_node, minimal_hits = None, None
+  # the check to see if the test is over
+
+  print(current_task_id, b_data)
+  for doc in nodes_ref.stream():
+    node = doc.to_dict()
+    if node['status'] == "dead":
+      continue
+      
+    print(node)
+
+    hits = node['hits']
+    if hits >= test_size:
+      node['status'] = "dead"
+      node_ref = task_ref.collection('nodes').document(node['node_id'])
+      node_ref.set(node)
+
+    elif node['hits'] < minimal_hits:
+      minimal_hit_node = node
+  
+  
+  # then we need to start a new test and initialize it
+  # ideally this needs to be flagged as we get close to the hit limit for the test so that we 
+  # can generate the new AB test components before we actually reach the hit limit. 
+  # so we'll have to try and guess which will win a little early and have a couple redundant serves. 
+  # this should async update the A B test and when it is finished update the DB
+  if not minimal_hit_node:
     fork_test(business_id)
-
-  
-  if A["hit_count"] > B["hit_count"]: 
-    b_data["current_tests"]["B"]["hit_count"] += 1
-    ret_css = B["css"]
-  
-  else: 
-    b_data["current_tests"]["A"]["hit_count"] += 1
-    ret_css = A["css"]
     
+  else: 
+    index_css += minimal_hit_node["component_css"]
+
   write_business_hist(business_id, b_data)
     
-  return ret_css, task_id, node_id
+  return index_css, current_task_id, node_id
 
-def extract_component(business_id, component_id):
-  biz_data = fetch_business_hist(business_id)
-  index_css = biz_data["index_css"]
-  
-  
-  import re
-  pattern = rf'\.{component_id}\s*{{([^}}]+)}}'
-  match = re.search(pattern, index_css, re.DOTALL)
-    
-  if match:
-    css_class = match.group(0)
-    return css_class.strip()
-  else:
-    return None
-  
+# for chopping time into intervals
+def get_interval():
+  pass
 
 # we need to implement a tree and eliminate all but top k
-def new_search_tree(businessName, task_id): 
-    biz_ref = db.collection('businesses').document(businessName)
+def new_search_tree(businessName, task_id, component_css): 
     task_ref = db.collection('businesses').document(businessName).collection("tasks").document(task_id)
     
     task_data = task_ref.get()
     task_data = task_data.to_dict()
-    
+
     root_node: TaskNode = {
       "timeStartTest": time.time(),
       "timeEndTest": None,
       "businessName": businessName,
-      "component_css": extract_component(businessName, task_data["component_id"]),
+      "component_css": component_css,
       "parent_node_id": None,
-      "hits": 0, 
-      "engagement_total": 0,
+      "hits": [], 
+      "clicks": {},
       "score": 0, 
-      "node_id": 0,
+      "node_id": "0",
       "children": []
     }
     
-    node_ref = db.collection('businesses').document(businessName).collection("tasks").document(task_id).collection("nodes").document(root_node["node_id"])
+    print(root_node)
+    
+    biz_ref = db.collection('businesses').document(businessName)
+    node_ref = biz_ref.collection("tasks").document(task_id).collection("nodes").document(root_node["node_id"])
 
     node_ref.set(root_node)
     
@@ -185,24 +203,24 @@ def fork_test(businessName, task_id, node_id):
         new_components = generate_new_components(businessName, b_data["goals"],
                                                  fork_node["component_css"], previously_tested_components)
         new_nodes = []
-        for component_css in new_components: 
+        for i, component_css in enumerate(new_components): 
             new_node = {
                 "timeStartTest": int(time.time()),
                 "timeEndTest": None,
                 "business": businessName,
                 "component_css": component_css,
                 "parent_node_id": node_id,
-                "hits": 0, 
+                "hits": [], 
+                "clicks": {},
                 "engagement_total": 0,
                 "score": 0, 
-                "children": []
+                "children": [],
+                "node_id": str(len(previously_tested_components) + i)
             }
             new_nodes.append(new_node)
 
-
-        for i, new_node in enumerate(new_nodes):
-            new_doc_ref = nodes_ref.document() 
-            new_node['node_id'] = len(nodes) + i
+        for new_node in new_nodes:
+            new_doc_ref = nodes_ref.document(new_node.node_id) 
             new_doc_ref.set(new_node)
 
         fork_node_ref = nodes_ref.document(node_id)
@@ -254,12 +272,47 @@ async def generate_new_components(goal, parent_node_css, previously_tested_compo
 
   
 @router.post('/start_ab_test')
-async def start_ab_test(task_info: ABTestInfo):
-  businessName = task_info["businessName"]
+async def start_ab_test(task_info: TaskData):
+  businessName = task_info.businessName
   # decide what test to do 
-  b_data = fetch_business_hist(businessName)
-  new_search_tree(businessName, task_info)
+
+  biz_ref = db.collection('businesses').document(businessName)
+  biz_data = biz_ref.get().to_dict()
+
+  task_ref = biz_ref.collection('tasks').document(task_info.task_id)
+  task_ref.set(task_info.model_dump())
   
+  index_css = biz_data["index_css"]
+  
+    # if not component_id: 
+      # raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str("No component_id found for task"))
+  
+  current_component = extract_component(index_css, task_info.component_id)
+  new_search_tree(businessName, task_info.task_id, current_component)
+  return current_component, task_info.component_id
+  
+
+# currently broken
+# fix logging first
+def extract_component(css_content, component_id):
+ 
+    sheet = None
+    try: 
+      # Parse the CSS content
+      sheet = cssutils.parseString(css_content)
+    
+    # the library is stupid and old, it throws random errs on a misparse, but f that
+    except Exception as e: 
+      pass
+
+    for rule in sheet:
+      if rule.type == rule.STYLE_RULE:
+        if f'.{component_id}' in rule.selectorText or rule.selectorText == component_id:
+            print(rule.selectorText)
+            return rule.cssText.strip()
+    
+    return None
+ 
 
 # dont know if we still need this
 def get_css(business_id): 

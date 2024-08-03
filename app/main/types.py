@@ -9,23 +9,19 @@ class BusinessData(BaseModel):
     businessName: str
     goals: str
     websiteUrl: str
-    cssFile: str
+    index_css: str
 
 class InteractionDto(BaseModel):
     businessId: str
     taskId: str
     nodeId: str
     
-class ABTestInfo(BaseModel):
-    businessName: str
-    goals: str
-    component: str
-    
 class TaskData(BaseModel):
     businessName: str
     goals: str
     component_id: str
-  
+    task_id: Optional[str]
+    
 class TaskNode(BaseModel):
     timeStartTest: str
     timeEndTest: str
