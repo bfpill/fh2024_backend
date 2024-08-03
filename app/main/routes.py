@@ -170,11 +170,11 @@ async def fork_test(businessName, task_id, nodes, fork_node):
     
     try:
         b_data = fetch_business_hist(businessName)
-        previously_tested_components = [node["component_css"] for node in nodes]
+        negative_examples = [node["component_css"] for node in nodes if node["node_id"] != fork_node["node_id"]]
         if nodes and fork_node:
             print("got here")
             new_components = await generate_new_components(b_data["goals"],
-                                                    fork_node["component_css"], previously_tested_components)
+                                                    fork_node["component_css"], negative_examples)
             new_nodes = []
             for i, component_css in enumerate(new_components):
                 print(component_css)
@@ -191,7 +191,7 @@ async def fork_test(businessName, task_id, nodes, fork_node):
                     "score": 0,
                     "children": [],
                     "status": 'alive',
-                    "node_id": str(len(previously_tested_components) + i)
+                    "node_id": str(len(nodes) + i)
                 }
                 new_nodes.append(new_node)
 
@@ -258,40 +258,49 @@ def new_search_tree(businessName, task_id, component_css):
   # or should we slowly test larger and larger sizes? 
 
 
-async def generate_new_components(goal, parent_node_css, previously_tested_components):
-    print("attempting generation")
+async def generate_new_components(parent_node_css, negative_examples, num_to_gen=5):
+    print("Attempting CSS component generation")
+    
     json_structure = {"css": [
         ".className: version 1",
         ".className: version 2",
         "...",
         ".className: versionN",
     ]}
+    
+    prompt = f'''Generate {num_to_gen} CSS component variations based on the following parent component:
+      {parent_node_css}
 
-    num_to_gen = 5
-    changeableVars = "Color, Size"
+      Requirements:
+      1. Return the CSS in a JSON object with this structure:
+      {json.dumps(json_structure, indent=2)}
+
+      2. Ensure each variation is noticeably different from the parent and from each other.
+
+      3. Do not replicate or closely resemble any of these previously tested components:
+      {json.dumps(negative_examples, indent=2)}
+
+      4. Maintain the original class name exactly as it appears in the parent component.
+
+      5. Ensure that the variations explore a diverse range of possibilities within the specified changeable variables.
+
+      6. If applicable, consider accessibility and responsive design principles in your variations.
+
+      Generate creative and visually distinct variations while adhering to these guidelines.
+  '''
     
-    prompt = f'''Please generate {num_to_gen} components that are similar to {parent_node_css}.
-    Return the css in a JSON object in the format: 
-        {str(json_structure)}
-    Here is the current css: 
-        {str(parent_node_css)}
-    Please only change these variables: 
-        {changeableVars}
-    Ensure that you do not make something that is similar to any of: 
-        {str(previously_tested_components)}
-    Keep the classname exactly the same as the original.
-    '''
-    
+    print("Prompt for CSS component generation:")
     print(prompt)
-
+    
     try:
         completion = await client.chat.completions.create(
             response_format={ "type": "json_object" },
             messages=[{ 
                 "role": "system", 
-                "content": prompt 
+                "content": prompt
             }],
             model="gpt-4-0125-preview",
+            temperature=0.75
         )
 
         # Assuming the completion.choices[0].message.content is a JSON string
