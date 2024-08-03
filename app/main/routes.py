@@ -7,6 +7,7 @@ from app.main.types import *
 from app.main.settings import getOpenai
 from uuid import uuid4
 import time
+from github import Github, GithubException
 
 from openai import AsyncOpenAI
 
@@ -68,6 +69,45 @@ async def update_hits(business_id, task_id, node_id):
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
   
+GITHUB_TOKEN = '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'
+GITHUB_REPO = 'Kiddie22/fh2024'
+FILE_NAME = 'test.css' 
+GITHUB_API_URL = f'https://api.github.com/repos/{GITHUB_REPO}/contents/blob/master/{FILE_NAME}'
+PATH_TO_FILE = f'./app/{FILE_NAME}'
+PATH_ON_GITHUB = f'src/{FILE_NAME}'
+COMMIT_MESSAGE = f'{FILE_NAME} added via Darwin #{int(time.time())}'
+
+# Define the endpoint to upload the file
+@router.post("/upload")
+async def upload_file():
+    try:
+        g = Github(GITHUB_TOKEN)
+        repo = g.get_repo(GITHUB_REPO)
+
+        file_content = repo.get_contents(PATH_ON_GITHUB)
+        file_sha = file_content.sha
+        # if file exists
+        # then update file
+        with open(PATH_TO_FILE, 'r') as file:
+            data = file.read()
+
+        repo.update_file(PATH_ON_GITHUB, COMMIT_MESSAGE, data, file_sha)
+        print(f"File '{PATH_ON_GITHUB}' updated successfully.")      
+
+    except GithubException as e:
+      if e.status == 404:
+        # If the file does not exist, create it
+        with open(PATH_TO_FILE, 'r') as file:
+          data = file.read()
+          
+        repo.create_file(PATH_ON_GITHUB, COMMIT_MESSAGE, data)
+        print(f"File '{PATH_ON_GITHUB}' created successfully.")        
+      
+      else:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    except Exception as e:
+      raise HTTPException(status_code=500, detail=str(e))
 
 @router.post('/sign_up')
 async def sign_up_business(data: BusinessData):
