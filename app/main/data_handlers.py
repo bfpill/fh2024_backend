@@ -172,3 +172,20 @@ def get_css(business_id):
     raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
   return data
+
+def get_selected_css(business_id, task_id, node_id):
+  node_ref = db.collection('businesses').document(business_id).collection('tasks').document(task_id).collection('nodes').document(node_id)
+  node = node_ref.get()
+
+  if node.exists:
+    data = node.to_dict()
+    component_css = data.get('component_css')
+    print(component_css)
+
+    if component_css is not None:
+        return component_css
+    else:
+        raise HTTPException(status_code=404, detail="component_css key not found in the document")
+  else:
+    raise HTTPException(status_code=404, detail="Document not found")
+   

@@ -1,12 +1,15 @@
 import json
-from app.main.data_handlers import extract_component, fetch_business_hist, round_to_nearest_interval, select_top_k_nodes, write_business_hist, update_clicks_service, update_hits_service, fetch_business_analytics
-from fastapi import APIRouter, status, HTTPException
+from app.main.data_handlers import extract_component, fetch_business_hist, round_to_nearest_interval, select_top_k_nodes, write_business_hist, update_clicks_service, update_hits_service, fetch_business_analytics, get_selected_css
+from fastapi import APIRouter, status, HTTPException, Request
 from logging import getLogger
 from app.main.settings import Settings
 from app.main.types import *
 from app.main.settings import getOpenai
 from uuid import uuid4
 import time
+from github import Github, GithubException
+import os
+from app.main.git import get_branch_sha, get_file_sha, create_branch, create_pull_request
 
 from openai import AsyncOpenAI
 
@@ -101,6 +104,50 @@ async def embed_css(business_id, task_id, node_id):
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
   
+GITHUB_TOKEN = os.getenv('GITHUB_TOKEN')
+GITHUB_REPO = 'bfpill/fh2024'
+FILE_NAME = 'index.css' 
+GITHUB_API_URL = f'https://api.github.com/repos/{GITHUB_REPO}/contents/blob/master/{FILE_NAME}'
+PATH_TO_FILE = f'./app/{FILE_NAME}'
+PATH_ON_GITHUB = f'src/{FILE_NAME}'
+COMMIT_MESSAGE = f'{FILE_NAME} added via Darwin #{int(time.time())}'
+TARGET_BRANCH = 'darwin'
+
+# Define the endpoint to upload the file
+@router.post("/upload")
+async def upload_file(request: Request):
+    try:
+        data = await request.json()
+        component_css = get_selected_css(data['business_id'], data['task_id'], data['node_id'])
+
+        g = Github(GITHUB_TOKEN)
+        repo = g.get_repo(GITHUB_REPO)
+
+        if not get_branch_sha(repo, TARGET_BRANCH):
+          create_branch(repo, TARGET_BRANCH)
+
+        file_content = repo.get_contents(PATH_ON_GITHUB)
+        file_sha = get_file_sha(repo, PATH_ON_GITHUB, TARGET_BRANCH)
+
+        if file_sha:
+          # if file exists
+          # then update file
+          decoded_content = file_content.decoded_content.decode()
+          new_content = decoded_content + "\n" + component_css + "\n"
+          print("update")
+          repo.update_file(PATH_ON_GITHUB, COMMIT_MESSAGE, new_content, file_sha, branch="darwin")
+          print(f"File '{PATH_ON_GITHUB}' updated successfully.")   
+        else:
+          g = Github(GITHUB_TOKEN)
+          repo = g.get_repo(GITHUB_REPO)
+          print("create file")
+          repo.create_file(PATH_ON_GITHUB, COMMIT_MESSAGE, component_css, branch="darwin")
+          print(f"File '{PATH_ON_GITHUB}' created successfully.")  
+  
+        create_pull_request(repo, TARGET_BRANCH, title="Add AB tested CSS", body="Added new CSS rules for index.css through Darwin")
+
+    except Exception as e:
+      raise HTTPException(status_code=500, detail=str(e))
 
 @router.post('/sign_up')
 async def sign_up_business(data: BusinessData):

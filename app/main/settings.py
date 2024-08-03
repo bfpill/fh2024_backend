@@ -10,6 +10,7 @@ load_dotenv()
 class Settings(BaseSettings):
   openai_api_key: str = "OPENAI_API_KEY NOT SET"
   master_password: str = "MASTER PASS NOT SET"
+  github_token: str = "GITHUB TOKEN NOT SET"
 
   production: bool = False
   logger_file: str = 'surv.log'
