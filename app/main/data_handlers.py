@@ -79,18 +79,20 @@ def update_clicks_service(business_id: str, task_id: str, node_id: str, aligned_
   biz_ref = db.collection('businesses').document(business_id)
   node_ref = biz_ref.collection('tasks').document(task_id).collection('nodes').document(node_id)
 
-  node = node_ref.get()
+  node = node_ref.get().to_dict()
+  
+  print(node)
 
-  if node.exists:
-      data = node.to_dict()
-      clicks = data["clicks"]
+  if node:
+      clicks = node["clicks"]
       
       print(clicks)
       if aligned_time in clicks:
         # Increment the counts
-        clicks[aligned_time] = clicks[aligned_time] + 1
+        clicks[aligned_time] += 1
         # Update the document with modified clicks dictionary
         node_ref.update({'clicks': clicks})
+        
       else:
         clicks[aligned_time] = 1
         node_ref.update({'clicks': clicks})
@@ -99,7 +101,7 @@ def update_clicks_service(business_id: str, task_id: str, node_id: str, aligned_
       print("Document does not exist.")
 
   node_ref.update({
-      "total_clicks": firestore.Increment(1)
+      "click_count": node["click_count"] + 1
   })
 
 def update_hits_service(business_id: str, task_id: str, node_id: str):

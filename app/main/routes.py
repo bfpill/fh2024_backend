@@ -1,5 +1,5 @@
 import json
-from app.main.data_handlers import extract_component, fetch_business_hist, select_top_k_nodes, write_business_hist, update_clicks_service, update_hits_service, fetch_business_analytics
+from app.main.data_handlers import extract_component, fetch_business_hist, round_to_nearest_interval, select_top_k_nodes, write_business_hist, update_clicks_service, update_hits_service, fetch_business_analytics
 from fastapi import APIRouter, status, HTTPException
 from logging import getLogger
 from app.main.settings import Settings
@@ -47,12 +47,13 @@ def get_business_analytics(business_id):
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
-@router.post('/test/{business_id}/{task_id}/{node_id}/clicks')
+@router.post('/clicks/{business_id}/{task_id}/{node_id}')
 async def update_clicks(business_id, task_id, node_id):
     try:
         timestamp = time.time()
         INTERVAL_MINUTES = 5 # this can be changed depending on what time intervals we want to show on the frontend
         aligned_time = str(int(round_to_nearest_interval(timestamp, INTERVAL_MINUTES)))
+        print(aligned_time)
         update_clicks_service(business_id, task_id, node_id, aligned_time)
 
         return {"message": "interactions incremented successfully"}
@@ -186,7 +187,7 @@ async def fork_test(businessName, task_id, nodes, fork_node):
                     "component_css": component_css,
                     "parent_node_id": fork_node['node_id'],
                     "hits": 0,
-                    "clicks": [],
+                    "clicks": {},
                     "engagement_total": 0,
                     "click_count": 0,
                     "score": 0,
