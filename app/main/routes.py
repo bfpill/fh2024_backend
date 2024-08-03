@@ -1,5 +1,5 @@
 from collections import defaultdict
-from app.main.data_handlers import fetch_business_hist, write_business_hist, increment_interaction_service
+from app.main.data_handlers import fetch_business_hist, write_business_hist, update_clicks_service, update_hits_service
 from fastapi import APIRouter, status, HTTPException, Header
 from logging import getLogger
 from app.main.settings import Settings
@@ -38,17 +38,32 @@ def handle_page_request(business_id):
   print(css_file != None, task_id, node_id)
   return {"css_file": css_file, "task_id": task_id, "node_id":node_id}
 
+@router.get('analytics/{business_id}')
+def get_business_analytics(business_id):
+   try:
+      business_data = fetch_business_hist()
+      print(business_data)
+   except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
-@router.post('/test/{business_id}/{task_id}/{node_id}')
-async def increment_interaction(business_id, task_id, node_id):
+@router.post('/test/{business_id}/{task_id}/{node_id}/clicks')
+async def update_clicks(business_id, task_id, node_id):
     try:
         timestamp = time.time()
         INTERVAL_MINUTES = 5 # this can be changed depending on what time intervals we want to show on the frontend
         aligned_time = str(int(round_to_nearest_interval(timestamp, INTERVAL_MINUTES)))
-        increment_interaction_service(business_id, task_id, node_id, aligned_time)
+        update_clicks_service(business_id, task_id, node_id, aligned_time)
 
         return {"message": "interactions incremented successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+  
+@router.post('/test/{business_id}/{task_id}/{node_id}/hits')
+async def update_hits(business_id, task_id, node_id):
+    try:
+        update_hits_service(business_id, task_id, node_id)
+        return {"message": "Hit registered"}
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
   
