@@ -243,9 +243,7 @@ async def get_business_info(businessName: str) -> Dict:
 
 
 # we need to change updates but yeah
-async def respond_to_site_hit(business_id):
-  # hard_coded for now
-  test_size = 1
+async def respond_to_site_hit(business_id, test_size=1):
   # we need to count clicks with timestamps
 
   b_data = fetch_business_hist(business_id)
