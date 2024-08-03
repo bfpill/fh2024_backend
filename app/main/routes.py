@@ -1,6 +1,5 @@
-from collections import defaultdict
 import json
-from app.main.data_handlers import fetch_business_hist, write_business_hist, update_clicks_service, update_hits_service, fetch_business_analytics
+from app.main.data_handlers import extract_component, fetch_business_hist, select_top_k_nodes, write_business_hist, update_clicks_service, update_hits_service, fetch_business_analytics
 from fastapi import APIRouter, status, HTTPException
 from logging import getLogger
 from app.main.settings import Settings
@@ -8,10 +7,7 @@ from app.main.types import *
 from app.main.settings import getOpenai
 from uuid import uuid4
 import time
-from datetime import datetime, timedelta
-import cssutils
 
-import asyncio
 from openai import AsyncOpenAI
 
 client = AsyncOpenAI()
@@ -92,31 +88,6 @@ async def sign_up_business(data: BusinessData):
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
     
-      
-def select_top_k_nodes(nodes, k):
-    winning_nodes = []
-    scores = []
-    
-    for node in nodes:
-      score = node['click_count'] / (node['hits'] + 1)
-      print("score", score)
-      scores.append((score, node))
-    
-    scores.sort(reverse=True, key=lambda x: x[0])
-    winning_nodes = [node for _, node in scores[:k]]
-    
-    return winning_nodes
-  
-def round_to_nearest_interval(seconds, interval_minutes):
-    dt = datetime.fromtimestamp(seconds)
-    # Calculate the number of seconds since the start of the hour
-    total_seconds = (dt.minute * 60) + dt.second
-    interval_seconds = interval_minutes * 60
-    # Round to the nearest interval
-    rounded_seconds = (total_seconds + interval_seconds // 2) // interval_seconds * interval_seconds
-    rounded_time = dt.replace(minute=0, second=0, microsecond=0) + timedelta(seconds=rounded_seconds)
-    # Convert back to timestamp
-    return rounded_time.timestamp()
 
 # we need to change updates but yeah
 async def respond_to_site_hit(business_id):
@@ -168,13 +139,11 @@ async def respond_to_site_hit(business_id):
       
     nodes.append(node)
   
-  
   # then we need to start a new test and initialize it
   # ideally this needs to be flagged as we get close to the hit limit for the test so that we 
   # can generate the new AB test components before we actually reach the hit limit. 
   # so we'll have to try and guess which will win a little early and have a couple redundant serves. 
   # this should async update the A B test and when it is finished update the DB
-  print("177")
   if not minimal_hit_node:
     k = 1
     print("k")
@@ -196,20 +165,6 @@ async def respond_to_site_hit(business_id):
   print(node_id)
   return index_css, current_task_id, node_id
 
-
-def handle_fork_test(business_id, current_task_id, nodes, node):
-    print("handling fork tets")
-    async def run_fork_test():
-        try:
-            await fork_test(business_id, current_task_id, nodes, node)
-        except Exception as e:
-            print(f"An error occurred during fork test: {e}")
-
-    task = asyncio.create_task(run_fork_test())
-    task.add_done_callback(lambda t: print(f"Fork test task completed for business: {business_id}, task: {current_task_id}"))
-
-    print(f"Fork test initiated for business: {business_id}, task: {current_task_id}")
-    return {"message": "Fork test initiated"}
 
 async def fork_test(businessName, task_id, nodes, fork_node):
     print("fork_node", fork_node)
@@ -302,7 +257,6 @@ def new_search_tree(businessName, task_id, component_css):
   # for example, if we want to optimize button size, should we first try an extra large and a small size, 
   # then iteratively move inwards? 
   # or should we slowly test larger and larger sizes? 
-  
 
 
 async def generate_new_components(goal, parent_node_css, previously_tested_components):
@@ -358,57 +312,27 @@ async def start_ab_test(task_info: TaskData):
 
   biz_ref = db.collection('businesses').document(businessName)
   biz_data = biz_ref.get().to_dict()
-  biz_data['current_task_id'] = task_info.task_id
-  biz_ref.set(biz_data)
 
-  task_ref = biz_ref.collection('tasks').document(task_info.task_id)
-  task_ref.set(task_info.model_dump())
-  
-  index_css = biz_data["index_css"]
-  
-    # if not component_id: 
-      # raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str("No component_id found for task"))
-  
-  current_component = extract_component(index_css, task_info.component_id)
-  new_search_tree(businessName, task_info.task_id, current_component)
-  return current_component, task_info.component_id
-  
+  if biz_data:
+    biz_data['current_task_id'] = task_info.task_id
+    biz_ref.set(biz_data)
 
-# currently broken
-# fix logging first
-def extract_component(css_content, component_id):
- 
-    sheet = None
-    try: 
-      # Parse the CSS content
-      sheet = cssutils.parseString(css_content)
+    task_ref = biz_ref.collection('tasks').document(task_info.task_id)
+    task_ref.set(task_info.model_dump())
     
-    # the library is stupid and old, it throws random errs on a misparse, but f that
-    except Exception as e: 
-      pass
-
-    for rule in sheet:
-      if rule.type == rule.STYLE_RULE:
-        if rule.selectorText == f'.{component_id}' or rule.selectorText == component_id:
-            print(rule.selectorText)
-            return rule.cssText.strip()
+    index_css = biz_data["index_css"]
     
-    return None
- 
-
-# dont know if we still need this
-def get_css(business_id): 
-  # we are going to have to spread out the history into multiple tables later and write a 
-  # function for getting and combining history into something meaningful
+      # if not component_id: 
+        # raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str("No component_id found for task"))
+    
+    current_component = extract_component(index_css, task_info.component_id)
+    new_search_tree(businessName, task_info.task_id, current_component)
+    return current_component, task_info.component_id
   
-  # history_ref = db.collection('histories').document(business_id)
-  curr_css_ref = db.collection('live_tests').document(business_id)
-  doc = curr_css_ref.get()
-  data = doc.to_dict()
+  else: 
+    print("Biz Doesn't Exist")
   
-  if not data: 
-    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
-  return data
+
   
   
