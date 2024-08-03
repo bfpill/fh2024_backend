@@ -13,6 +13,7 @@ class Settings(BaseSettings):
   openai_api_key: str = "OPENAI_API_KEY NOT SET"
   master_password: str = "MASTER PASS NOT SET"
   firebase_credentials_base64: str = "FIREBASE CRED NOT SET"
+  github_token: str = "GITHUB TOKEN NOT SET"
 
   production: bool = False
   logger_file: str = 'surv.log'
