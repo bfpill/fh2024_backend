@@ -61,7 +61,7 @@ async def update_clicks(business_id, task_id, node_id):
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
       
   
-@router.post('/test/{business_id}/{task_id}/{node_id}/hits')
+@router.post('/hits/{business_id}/{task_id}/{node_id}')
 async def update_hits(business_id, task_id, node_id):
     try:
         update_hits_service(business_id, task_id, node_id)
@@ -258,7 +258,7 @@ def new_search_tree(businessName, task_id, component_css):
   # or should we slowly test larger and larger sizes? 
 
 
-async def generate_new_components(parent_node_css, negative_examples, num_to_gen=5):
+async def generate_new_components(goals, parent_node_css, negative_examples, num_to_gen=5):
     print("Attempting CSS component generation")
     
     json_structure = {"css": [
@@ -268,26 +268,20 @@ async def generate_new_components(parent_node_css, negative_examples, num_to_gen
         ".className: versionN",
     ]}
     
-    prompt = f'''Generate {num_to_gen} CSS component variations based on the following parent component:
-      {parent_node_css}
+    num_to_gen = 5
+    changeableVars = "Color, Size"
 
-      Requirements:
-      1. Return the CSS in a JSON object with this structure:
-      {json.dumps(json_structure, indent=2)}
-
-      2. Ensure each variation is noticeably different from the parent and from each other.
-
-      3. Do not replicate or closely resemble any of these previously tested components:
-      {json.dumps(negative_examples, indent=2)}
-
-      4. Maintain the original class name exactly as it appears in the parent component.
-
-      5. Ensure that the variations explore a diverse range of possibilities within the specified changeable variables.
-
-      6. If applicable, consider accessibility and responsive design principles in your variations.
-
-      Generate creative and visually distinct variations while adhering to these guidelines.
-  '''
+    prompt = f'''Please generate {num_to_gen} components that are similar to {parent_node_css}.
+    Return the css in a JSON object in the format: 
+        {str(json_structure)}
+    Here is the current css: 
+        {str(parent_node_css)}
+    Please only change these variables: 
+        {changeableVars}
+    Ensure that you do not make something that is similar to any of: 
+        {str(negative_examples)}
+    Keep the classname exactly the same as the original.
+    Be as creative as possible with the design while adhering to these guidelines.'''
     
     print("Prompt for CSS component generation:")
     print(prompt)
@@ -341,5 +335,39 @@ async def start_ab_test(task_info: TaskData):
   
 
 
-  
+@router.get('/get_biz_info/{businessName}')
+async def get_business_info(businessName: str) -> Dict:
+    biz_ref = db.collection('businesses').document(businessName)
+    biz_doc = biz_ref.get()
+
+    if not biz_doc.exists:
+        raise HTTPException(status_code=404, detail="Business not found")
+
+    biz_data = biz_doc.to_dict()
+
+    tasks_ref = biz_ref.collection('tasks')
+    tasks_docs = tasks_ref.stream()
+
+    tasks_data = []
+
+    for task_doc in tasks_docs:
+        task_data = task_doc.to_dict()
+        task_data['id'] = task_doc.id
+
+        nodes_ref = task_doc.reference.collection('nodes')
+        nodes_docs = nodes_ref.stream()
+
+        nodes_data = []
+
+        for node_doc in nodes_docs:
+            node_data = node_doc.to_dict()
+            node_data['id'] = node_doc.id
+            nodes_data.append(node_data)
+
+        task_data['nodes'] = nodes_data
+        tasks_data.append(task_data)
+
+    biz_data['tasks'] = tasks_data
+
+    return biz_data
   
