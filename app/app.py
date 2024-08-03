@@ -4,6 +4,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from app.main import routes
 from app.main.settings import Settings, settings
+from contextlib import asynccontextmanager
+import asyncio
 
 from fastapi import FastAPI
 
@@ -13,7 +15,17 @@ def get_app() -> FastAPI:
   )
   return app
 
-app = get_app()
+background_tasks = set()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: create the background task set
+    yield
+    # Shutdown: wait for all background tasks to complete
+    if background_tasks:
+        await asyncio.gather(*background_tasks)
+
+app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
