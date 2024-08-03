@@ -2,8 +2,6 @@ from openai import AsyncOpenAI
 from dotenv import load_dotenv
 from pydantic_settings import BaseSettings
 from openai import AsyncOpenAI
-
-
 import firebase_admin
 from firebase_admin import credentials
 
@@ -12,7 +10,6 @@ load_dotenv()
 class Settings(BaseSettings):
   openai_api_key: str = "OPENAI_API_KEY NOT SET"
   master_password: str = "MASTER PASS NOT SET"
-  firebase_credentials_base64: str = "FIREBASE CRED NOT SET"
 
   production: bool = False
   logger_file: str = 'surv.log'

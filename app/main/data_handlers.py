@@ -29,6 +29,7 @@ def fetch_business_hist(businessName: str):
     doc = biz_ref.get()
     data = doc.to_dict()
     return data
+  
 
 def fetch_business_analytics(businessName):
     # Reference to the business document
@@ -136,7 +137,7 @@ def round_to_nearest_interval(seconds, interval_minutes):
     # Convert back to timestamp
     return rounded_time.timestamp()
   
-  
+
 def extract_component(css_content, component_id):
  
     sheet = None

@@ -10,6 +10,8 @@ import time
 
 from openai import AsyncOpenAI
 
+from app.main.vector_handlers import create_vector, get_closest_components, predict_next_vector
+
 client = AsyncOpenAI()
 
 from firebase_admin import firestore
@@ -45,6 +47,20 @@ def get_business_analytics(business_id):
       return tasks
    except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+      
+      
+@router.delete('/task/{business_id}/{task_id}')
+async def delete_task(business_id: str, task_id: str):
+    try:
+        task_ref = db.collection('businesses').document(business_id).collection('tasks').document(task_id)
+        
+        task_data = task_ref.get()
+        print(task_data)
+        if task_data:
+          task_ref.delete()
+          return "deleted successfully"
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
 @router.post('/clicks/{business_id}/{task_id}/{node_id}')
@@ -68,6 +84,22 @@ async def update_hits(business_id, task_id, node_id):
         return {"message": "Hit registered"}
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+      
+@router.get('/embeds/{business_id}/{task_id}/{node_id}')
+async def embed_css(business_id, task_id, node_id):
+    try:
+        task_ref = db.collection('businesses').document(business_id).collection('tasks').document(task_id)
+        node_ref = task_ref.collection('nodes').document(node_id)
+        
+        node = node_ref.get().to_dict()
+        vector = await create_vector(node['component_css'])
+        
+        print(len(vector))
+        node_ref.update({"embed": vector})
+        
+        return {"message": "Hit registered", "vector": vector}
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
   
 
 @router.post('/sign_up')
@@ -88,7 +120,72 @@ async def sign_up_business(data: BusinessData):
         return {"message": "Business information successfully added", "businessId": new_doc_ref.id}
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+@router.post('/start_ab_test')
+async def start_ab_test(task_info: TaskData):
+  businessName = task_info.businessName
+  # decide what test to do 
+
+  biz_ref = db.collection('businesses').document(businessName)
+  biz_data = biz_ref.get().to_dict()
+
+  if biz_data:
+    biz_data['current_task_id'] = task_info.task_id
+    biz_ref.set(biz_data)
+
+    task_ref = biz_ref.collection('tasks').document(task_info.task_id)
+    task_ref.set(task_info.model_dump())
     
+    index_css = biz_data["index_css"]
+    
+      # if not component_id: 
+        # raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str("No component_id found for task"))
+    
+    current_component = extract_component(index_css, task_info.component_id)
+    await new_search_tree(businessName, task_info.task_id, current_component)
+    return current_component, task_info.component_id
+  
+  else: 
+    print("Biz Doesn't Exist")
+  
+
+
+@router.get('/get_biz_info/{businessName}')
+async def get_business_info(businessName: str) -> Dict:
+    biz_ref = db.collection('businesses').document(businessName)
+    biz_doc = biz_ref.get()
+
+    if not biz_doc.exists:
+        raise HTTPException(status_code=404, detail="Business not found")
+
+    biz_data = biz_doc.to_dict()
+
+    tasks_ref = biz_ref.collection('tasks')
+    tasks_docs = tasks_ref.stream()
+
+    tasks_data = []
+
+    for task_doc in tasks_docs:
+        task_data = task_doc.to_dict()
+        task_data['id'] = task_doc.id
+
+        nodes_ref = task_doc.reference.collection('nodes')
+        nodes_docs = nodes_ref.stream()
+
+        nodes_data = []
+
+        for node_doc in nodes_docs:
+            node_data = node_doc.to_dict()
+            node_data['id'] = node_doc.id
+            nodes_data.append(node_data)
+
+        task_data['nodes'] = nodes_data
+        tasks_data.append(task_data)
+
+    biz_data['tasks'] = tasks_data
+
+    return biz_data 
+
 
 # we need to change updates but yeah
 async def respond_to_site_hit(business_id):
@@ -165,19 +262,34 @@ async def respond_to_site_hit(business_id):
   return index_css, current_task_id, node_id
 
 
-async def fork_test(businessName, task_id, nodes, fork_node):
-    print("fork_node", fork_node)
-    
-    try:
-        b_data = fetch_business_hist(businessName)
-        negative_examples = [node["component_css"] for node in nodes if node["node_id"] != fork_node["node_id"]]
+async def fork_test(businessName, task_id, nodes, fork_node): 
+      b_data = fetch_business_hist(businessName)
+      negative_examples = [node["component_css"] for node in nodes if node["node_id"] != fork_node["node_id"]]
+      
+      try: 
         if nodes and fork_node:
-            print("got here")
+            # return a string of class css
             new_components = await generate_new_components(b_data["goals"],
-                                                    fork_node["component_css"], negative_examples)
+                                                      fork_node["component_css"], negative_examples)
+            print("new_comps:", new_components)
+            new_component_vectors = await create_vector(new_components)
+            print(":sfafa")
+
+            if fork_node["node_id"] != '0':
+              vector_sequence = get_vector_sequence(businessName, task_id, fork_node["node_id"])
+              print("len", len(vector_sequence))
+              next_vector_pred = predict_next_vector(vector_sequence)
+              print("got here", len(new_component_vectors), len(new_components))
+
+              closest_components_vectors = get_closest_components(new_components, new_component_vectors, next_vector_pred)
+
+              print("closest:", closest_components_vectors)
+              if closest_components_vectors:
+                new_components = closest_components_vectors
+             
             new_nodes = []
+            
             for i, component_css in enumerate(new_components):
-                print(component_css)
                 new_node = {
                     "timeStartTest": int(time.time()),
                     "timeEndTest": None,
@@ -191,14 +303,14 @@ async def fork_test(businessName, task_id, nodes, fork_node):
                     "score": 0,
                     "children": [],
                     "status": 'alive',
-                    "node_id": str(len(nodes) + i)
+                    "node_id": str(len(nodes) + i),
+                    "embed": new_component_vectors[i]
                 }
                 new_nodes.append(new_node)
 
             task_ref = db.collection('businesses').document(businessName).collection('tasks').document(task_id)
             nodes_ref = task_ref.collection('nodes')
     
-            # Use a batch write for efficiency
             batch = db.batch()
             for new_node in new_nodes:
                 new_doc_ref = nodes_ref.document(new_node['node_id'])
@@ -209,24 +321,24 @@ async def fork_test(businessName, task_id, nodes, fork_node):
                 "children": firestore.ArrayUnion([node['node_id'] for node in new_nodes])
             })
 
-            # Commit the batch
             await batch.commit()
 
             print(f"Fork test completed for business: {businessName}, task: {task_id}")
             return new_nodes
         else:
             return None
-    except Exception as e:
-        print(f"An error occurred during fork test: {e}")
-        return None
+      except Exception as e:
+        print("BAD", e)
 
 
 # we need to implement a tree and eliminate all but top k
-def new_search_tree(businessName, task_id, component_css): 
+async def new_search_tree(businessName, task_id, component_css): 
     task_ref = db.collection('businesses').document(businessName).collection("tasks").document(task_id)
     
     task_data = task_ref.get()
     task_data = task_data.to_dict()
+    
+    vector = await create_vector(component_css)
 
     root_node: TaskNode = {
       "timeStartTest": time.time(),
@@ -241,6 +353,7 @@ def new_search_tree(businessName, task_id, component_css):
       "children": [], 
       "status": "alive",
       "click_count": 0,
+      "embed": vector
     }
     
     print(root_node)
@@ -258,7 +371,33 @@ def new_search_tree(businessName, task_id, component_css):
   # or should we slowly test larger and larger sizes? 
 
 
-async def generate_new_components(goals, parent_node_css, negative_examples, num_to_gen=5):
+
+
+# this starts at a child node and builds up the vectors from each node on it's path to the root node
+def get_vector_sequence(business_name: str, task_id: str, child_node_id: str) -> List[Any]:
+    nodes_ref = db.collection('businesses').document(business_name).collection("tasks").document(task_id).collection("nodes")
+    
+    sequence = []
+    current_node_id = child_node_id
+
+    while True:
+        node_doc = nodes_ref.document(current_node_id).get()
+        
+        if not node_doc:
+            raise ValueError(f"Node with ID {current_node_id} does not exist")
+        
+        node = node_doc.to_dict()
+        sequence.append(node["embed"])
+        
+        if node["node_id"] == '0':
+            break
+        
+        current_node_id = node["parent_node_id"]
+    
+    return list(reversed(sequence))
+    
+    
+async def generate_new_components(goals, parent_node_css, negative_examples, num_to_gen=6):
     print("Attempting CSS component generation")
     
     json_structure = {"css": [
@@ -268,7 +407,6 @@ async def generate_new_components(goals, parent_node_css, negative_examples, num
         ".className: versionN",
     ]}
     
-    num_to_gen = 5
     changeableVars = "Color, Size"
 
     prompt = f'''Please generate {num_to_gen} components that are similar to {parent_node_css}.
@@ -285,6 +423,7 @@ async def generate_new_components(goals, parent_node_css, negative_examples, num
     
     print("Prompt for CSS component generation:")
     print(prompt)
+
     
     try:
         completion = await client.chat.completions.create(
@@ -302,72 +441,5 @@ async def generate_new_components(goals, parent_node_css, negative_examples, num
         return new_components
     except Exception as e:
         print(f"An error occurred during component generation: {e}")
-        return []
 
 
-  
-@router.post('/start_ab_test')
-async def start_ab_test(task_info: TaskData):
-  businessName = task_info.businessName
-  # decide what test to do 
-
-  biz_ref = db.collection('businesses').document(businessName)
-  biz_data = biz_ref.get().to_dict()
-
-  if biz_data:
-    biz_data['current_task_id'] = task_info.task_id
-    biz_ref.set(biz_data)
-
-    task_ref = biz_ref.collection('tasks').document(task_info.task_id)
-    task_ref.set(task_info.model_dump())
-    
-    index_css = biz_data["index_css"]
-    
-      # if not component_id: 
-        # raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str("No component_id found for task"))
-    
-    current_component = extract_component(index_css, task_info.component_id)
-    new_search_tree(businessName, task_info.task_id, current_component)
-    return current_component, task_info.component_id
-  
-  else: 
-    print("Biz Doesn't Exist")
-  
-
-
-@router.get('/get_biz_info/{businessName}')
-async def get_business_info(businessName: str) -> Dict:
-    biz_ref = db.collection('businesses').document(businessName)
-    biz_doc = biz_ref.get()
-
-    if not biz_doc.exists:
-        raise HTTPException(status_code=404, detail="Business not found")
-
-    biz_data = biz_doc.to_dict()
-
-    tasks_ref = biz_ref.collection('tasks')
-    tasks_docs = tasks_ref.stream()
-
-    tasks_data = []
-
-    for task_doc in tasks_docs:
-        task_data = task_doc.to_dict()
-        task_data['id'] = task_doc.id
-
-        nodes_ref = task_doc.reference.collection('nodes')
-        nodes_docs = nodes_ref.stream()
-
-        nodes_data = []
-
-        for node_doc in nodes_docs:
-            node_data = node_doc.to_dict()
-            node_data['id'] = node_doc.id
-            nodes_data.append(node_data)
-
-        task_data['nodes'] = nodes_data
-        tasks_data.append(task_data)
-
-    biz_data['tasks'] = tasks_data
-
-    return biz_data
-  
