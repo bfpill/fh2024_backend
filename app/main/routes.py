@@ -1,5 +1,5 @@
 from collections import defaultdict
-from app.main.data_handlers import fetch_business_hist, write_business_hist, update_clicks_service, update_hits_service
+from app.main.data_handlers import fetch_business_hist, write_business_hist, update_clicks_service, update_hits_service, fetch_business_analytics
 from fastapi import APIRouter, status, HTTPException, Header
 from logging import getLogger
 from app.main.settings import Settings
@@ -38,11 +38,11 @@ def handle_page_request(business_id):
   print(css_file != None, task_id, node_id)
   return {"css_file": css_file, "task_id": task_id, "node_id":node_id}
 
-@router.get('analytics/{business_id}')
+@router.get('/analytics/{business_id}')
 def get_business_analytics(business_id):
    try:
-      business_data = fetch_business_hist()
-      print(business_data)
+      tasks = fetch_business_analytics(business_id)
+      return tasks
    except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
@@ -67,7 +67,6 @@ async def update_hits(business_id, task_id, node_id):
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
   
-
 
 @router.post('/sign_up')
 async def sign_up_business(data: BusinessData):
