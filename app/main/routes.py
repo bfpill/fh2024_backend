@@ -1,6 +1,6 @@
 from collections import defaultdict
 import json
-from app.main.data_handlers import fetch_business_hist, write_business_hist, increment_interaction_service
+from app.main.data_handlers import fetch_business_hist, write_business_hist, update_clicks_service, update_hits_service, fetch_business_analytics
 from fastapi import APIRouter, status, HTTPException, Header
 from logging import getLogger
 from app.main.settings import Settings
@@ -8,6 +8,7 @@ from app.main.types import *
 from app.main.settings import getOpenai
 from uuid import uuid4
 import time
+from datetime import datetime, timedelta
 import cssutils
 
 import asyncio
@@ -43,17 +44,35 @@ async def handle_page_request(business_id):
   print(css_file != None, task_id, node_id)
   return {"css_file": css_file, "task_id": task_id, "node_id":node_id}
 
+@router.get('/analytics/{business_id}')
+def get_business_analytics(business_id):
+   try:
+      tasks = fetch_business_analytics(business_id)
+      return tasks
+   except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
-@router.post('/test/{business_id}/{task_id}/{node_id}')
-async def increment_interaction(business_id, task_id, node_id):
+@router.post('/test/{business_id}/{task_id}/{node_id}/clicks')
+async def update_clicks(business_id, task_id, node_id):
     try:
-        increment_interaction_service(business_id, task_id, node_id)
+        timestamp = time.time()
+        INTERVAL_MINUTES = 5 # this can be changed depending on what time intervals we want to show on the frontend
+        aligned_time = str(int(round_to_nearest_interval(timestamp, INTERVAL_MINUTES)))
+        update_clicks_service(business_id, task_id, node_id, aligned_time)
+
         return {"message": "interactions incremented successfully"}
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
   
-
+@router.post('/test/{business_id}/{task_id}/{node_id}/hits')
+async def update_hits(business_id, task_id, node_id):
+    try:
+        update_hits_service(business_id, task_id, node_id)
+        return {"message": "Hit registered"}
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+  
 
 @router.post('/sign_up')
 async def sign_up_business(data: BusinessData):
@@ -89,8 +108,17 @@ def select_top_k_nodes(nodes, k):
     
     return winning_nodes
   
-  
-  
+def round_to_nearest_interval(seconds, interval_minutes):
+    dt = datetime.fromtimestamp(seconds)
+    # Calculate the number of seconds since the start of the hour
+    total_seconds = (dt.minute * 60) + dt.second
+    interval_seconds = interval_minutes * 60
+    # Round to the nearest interval
+    rounded_seconds = (total_seconds + interval_seconds // 2) // interval_seconds * interval_seconds
+    rounded_time = dt.replace(minute=0, second=0, microsecond=0) + timedelta(seconds=rounded_seconds)
+    # Convert back to timestamp
+    return rounded_time.timestamp()
+
 # we need to change updates but yeah
 async def respond_to_site_hit(business_id):
   # hard_coded for now
@@ -258,8 +286,8 @@ def new_search_tree(businessName, task_id, component_css):
       "businessName": businessName,
       "component_css": component_css,
       "parent_node_id": None,
-      "hits": 0, 
-      "clicks": [],
+      "hits": [], 
+      "clicks": {},
       "score": 0, 
       "node_id": "0",
       "children": [], 
