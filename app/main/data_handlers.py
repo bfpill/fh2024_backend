@@ -30,6 +30,11 @@ def fetch_business_hist(businessName: str):
     data = doc.to_dict()
     return data
   
+def fetch_businesses():
+    business_ref = db.collection('businesses')
+    business_docs = business_ref.stream()
+    documents_list = [doc.to_dict()['name'] for doc in business_docs]
+    return documents_list
 
 def fetch_business_analytics(businessName):
     # Reference to the business document

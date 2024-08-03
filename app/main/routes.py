@@ -1,5 +1,5 @@
 import json
-from app.main.data_handlers import extract_component, fetch_business_hist, round_to_nearest_interval, select_top_k_nodes, write_business_hist, update_clicks_service, update_hits_service, fetch_business_analytics, get_selected_css
+from app.main.data_handlers import extract_component, fetch_business_hist, round_to_nearest_interval, select_top_k_nodes, write_business_hist, update_clicks_service, update_hits_service, fetch_business_analytics, get_selected_css, fetch_businesses
 from fastapi import APIRouter, status, HTTPException, Request
 from logging import getLogger
 from app.main.settings import Settings
@@ -26,6 +26,14 @@ client = getOpenai()
 
 # settings = Settings()
 
+@router.get('/businesses')
+async def handle_page_request():
+  try:
+    data = fetch_businesses()
+    return data
+  except Exception as e: 
+    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+    
 @router.get('/test/{business_id}')
 async def handle_page_request(business_id):
   
