@@ -159,10 +159,8 @@ async def respond_to_site_hit(business_id):
 
   write_business_hist(business_id, b_data)
   
-  node_id = None
-  if minimal_hit_node: 
-    node_id = minimal_hit_node["node_id"]
-    
+  node_id = minimal_hit_node["node_id"] if minimal_hit_node else 0
+
   print(node_id)
   return index_css, current_task_id, node_id
 
@@ -296,7 +294,6 @@ async def generate_new_components(goal, parent_node_css, previously_tested_compo
             model="gpt-4-0125-preview",
         )
 
-        
         # Assuming the completion.choices[0].message.content is a JSON string
         new_components = json.loads(completion.choices[0].message.content)['css']
         return new_components
