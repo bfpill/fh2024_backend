@@ -24,7 +24,7 @@ router = APIRouter()
 logger = getLogger()
 client = getOpenai()
 
-# settings = Settings()
+settings = Settings()
 
 @router.get('/businesses')
 async def handle_page_request():
@@ -48,7 +48,6 @@ async def handle_page_request(business_id):
     # logger.error(f"Error retrieving user books: {e}")
     raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
     
-  print(css_file != None, task_id, node_id)
   return {"css_file": css_file, "task_id": task_id, "node_id":node_id}
 
 @router.get('/analytics/{business_id}')
@@ -66,7 +65,6 @@ async def delete_task(business_id: str, task_id: str):
         task_ref = db.collection('businesses').document(business_id).collection('tasks').document(task_id)
         
         task_data = task_ref.get()
-        print(task_data)
         if task_data:
           task_ref.delete()
           return "deleted successfully"
@@ -78,9 +76,8 @@ async def delete_task(business_id: str, task_id: str):
 async def update_clicks(business_id, task_id, node_id):
     try:
         timestamp = time.time()
-        INTERVAL_MINUTES = 5 # this can be changed depending on what time intervals we want to show on the frontend
+        INTERVAL_MINUTES = 0.1 # this can be changed depending on what time intervals we want to show on the frontend
         aligned_time = str(int(round_to_nearest_interval(timestamp, INTERVAL_MINUTES)))
-        print(aligned_time)
         update_clicks_service(business_id, task_id, node_id, aligned_time)
 
         return {"message": "interactions incremented successfully"}
@@ -105,16 +102,19 @@ async def embed_css(business_id, task_id, node_id):
         node = node_ref.get().to_dict()
         vector = await create_vector(node['component_css'])
         
-        print(len(vector))
         node_ref.update({"embed": vector})
         
         return {"message": "Hit registered", "vector": vector}
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
   
-GITHUB_TOKEN = os.getenv('GITHUB_TOKEN')
+
+
+
+# hardcoded for demo purposes
+GITHUB_TOKEN = settings.github_token
 GITHUB_REPO = 'bfpill/fh2024'
-FILE_NAME = 'index.css' 
+FILE_NAME = 'index.css'
 GITHUB_API_URL = f'https://api.github.com/repos/{GITHUB_REPO}/contents/blob/master/{FILE_NAME}'
 PATH_TO_FILE = f'./app/{FILE_NAME}'
 PATH_ON_GITHUB = f'src/{FILE_NAME}'
@@ -124,13 +124,13 @@ TARGET_BRANCH = 'darwin'
 # Define the endpoint to upload the file
 @router.post("/upload")
 async def upload_file(request: Request):
+    
     try:
         data = await request.json()
         component_css = get_selected_css(data['business_id'], data['task_id'], data['node_id'])
-
         g = Github(GITHUB_TOKEN)
         repo = g.get_repo(GITHUB_REPO)
-
+        
         if not get_branch_sha(repo, TARGET_BRANCH):
           create_branch(repo, TARGET_BRANCH)
 
@@ -142,13 +142,11 @@ async def upload_file(request: Request):
           # then update file
           decoded_content = file_content.decoded_content.decode()
           new_content = decoded_content + "\n" + component_css + "\n"
-          print("update")
           repo.update_file(PATH_ON_GITHUB, COMMIT_MESSAGE, new_content, file_sha, branch="darwin")
           print(f"File '{PATH_ON_GITHUB}' updated successfully.")   
         else:
           g = Github(GITHUB_TOKEN)
           repo = g.get_repo(GITHUB_REPO)
-          print("create file")
           repo.create_file(PATH_ON_GITHUB, COMMIT_MESSAGE, component_css, branch="darwin")
           print(f"File '{PATH_ON_GITHUB}' created successfully.")  
   
@@ -206,7 +204,7 @@ async def start_ab_test(task_info: TaskData):
 
 
 @router.get('/get_biz_info/{businessName}')
-async def get_business_info(businessName: str) -> Dict:
+async def get_business_info(businessName: str):
     biz_ref = db.collection('businesses').document(businessName)
     biz_doc = biz_ref.get()
 
@@ -243,11 +241,10 @@ async def get_business_info(businessName: str) -> Dict:
 
 
 # we need to change updates but yeah
-async def respond_to_site_hit(business_id, test_size=1):
-  # we need to count clicks with timestamps
+async def respond_to_site_hit(business_id, test_size=1, k_winners = 1):
 
+  # we need to count clicks with timestamps
   b_data = fetch_business_hist(business_id)
-  print("Biz Id: ", business_id)
   if not b_data: 
     raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str("Bad Biz Id"))
     
@@ -260,18 +257,14 @@ async def respond_to_site_hit(business_id, test_size=1):
   # will give a consitent baseline for now? can be changed later
   current_task_id = b_data["current_task_id"]
 
-  print(index_css != None, current_task_id)
-  
   task_ref = db.collection('businesses').document(business_id).collection('tasks').document(current_task_id)
   nodes_ref = task_ref.collection('nodes')
   
   minimal_hit_node, minimal_hits = None, float('inf')
-  # the check to see if the test is over
 
   nodes = []
   for doc in nodes_ref.stream():
     node = doc.to_dict()
-    print(node)
 
     if 'status' in node and node['status'] == "dead":
       nodes.append(node)
@@ -296,10 +289,7 @@ async def respond_to_site_hit(business_id, test_size=1):
   # so we'll have to try and guess which will win a little early and have a couple redundant serves. 
   # this should async update the A B test and when it is finished update the DB
   if not minimal_hit_node:
-    k = 1
-    print("k")
-    winners = select_top_k_nodes(nodes, k)
-    print("winners", winners)
+    winners = select_top_k_nodes(nodes, k_winners)
 
     for node in winners: 
       await fork_test(business_id, current_task_id, nodes, node)
@@ -310,8 +300,6 @@ async def respond_to_site_hit(business_id, test_size=1):
   write_business_hist(business_id, b_data)
   
   node_id = minimal_hit_node["node_id"] if minimal_hit_node else 0
-
-  print(node_id)
   return index_css, current_task_id, node_id
 
 
@@ -321,24 +309,21 @@ async def fork_test(businessName, task_id, nodes, fork_node):
       
       try: 
         if nodes and fork_node:
-            # return a string of class css
+
+            # generates css classes similar to parent
             new_components = await generate_new_components(b_data["goals"],
                                                       fork_node["component_css"], negative_examples)
-            print("new_comps:", new_components)
+            # semantically embeds the generated components
             new_component_vectors = await create_vector(new_components)
-            print(":sfafa")
-
+            
+            # if is one layer deep node we don't do momentum calculation
             if fork_node["node_id"] != '0':
+              # gets a path from the fork node to the root node for calculating momentum
               vector_sequence = get_vector_sequence(businessName, task_id, fork_node["node_id"])
-              print("len", len(vector_sequence))
               next_vector_pred = predict_next_vector(vector_sequence)
-              print("got here", len(new_component_vectors), len(new_components))
-
               closest_components_vectors = get_closest_components(new_components, new_component_vectors, next_vector_pred)
 
-              print("closest:", closest_components_vectors)
-              if closest_components_vectors:
-                new_components = closest_components_vectors
+              new_components = closest_components_vectors
              
             new_nodes = []
             
@@ -381,7 +366,7 @@ async def fork_test(businessName, task_id, nodes, fork_node):
         else:
             return None
       except Exception as e:
-        print("BAD", e)
+        print("Fork Node failed: ", e)
 
 
 # we need to implement a tree and eliminate all but top k
@@ -409,8 +394,6 @@ async def new_search_tree(businessName, task_id, component_css):
       "embed": vector
     }
     
-    print(root_node)
-    
     biz_ref = db.collection('businesses').document(businessName)
     node_ref = biz_ref.collection("tasks").document(task_id).collection("nodes").document(root_node["node_id"])
 
@@ -424,10 +407,8 @@ async def new_search_tree(businessName, task_id, component_css):
   # or should we slowly test larger and larger sizes? 
 
 
-
-
 # this starts at a child node and builds up the vectors from each node on it's path to the root node
-def get_vector_sequence(business_name: str, task_id: str, child_node_id: str) -> List[Any]:
+def get_vector_sequence(business_name: str, task_id: str, child_node_id: str):
     nodes_ref = db.collection('businesses').document(business_name).collection("tasks").document(task_id).collection("nodes")
     
     sequence = []
@@ -435,24 +416,19 @@ def get_vector_sequence(business_name: str, task_id: str, child_node_id: str) ->
 
     while True:
         node_doc = nodes_ref.document(current_node_id).get()
-        
         if not node_doc:
             raise ValueError(f"Node with ID {current_node_id} does not exist")
         
         node = node_doc.to_dict()
         sequence.append(node["embed"])
-        
         if node["node_id"] == '0':
             break
-        
         current_node_id = node["parent_node_id"]
     
     return list(reversed(sequence))
     
     
 async def generate_new_components(goals, parent_node_css, negative_examples, num_to_gen=6):
-    print("Attempting CSS component generation")
-    
     json_structure = {"css": [
         ".className: version 1",
         ".className: version 2",
@@ -474,8 +450,6 @@ async def generate_new_components(goals, parent_node_css, negative_examples, num
     Keep the classname exactly the same as the original.
     Be as creative as possible with the design while adhering to these guidelines.'''
     
-    print("Prompt for CSS component generation:")
-    print(prompt)
 
     
     try:

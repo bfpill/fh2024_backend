@@ -17,10 +17,8 @@ async def create_vector(data):
     )
 
     vectors = [embed.embedding for embed in response.data]
-
     return vectors if len(vectors) > 1 else vectors[0]
   else: 
-    print("No form reponse")
     return False
 
 def calculate_vector_difference(v1, v2):
@@ -28,20 +26,15 @@ def calculate_vector_difference(v1, v2):
 
 def calculate_momentum(vector_sequence, window_size=2):
     
-    print(len(vector_sequence))
     if len(vector_sequence) < 1:
         raise ValueError("Not enough vectors in the sequence")
     
     recent_vectors = [np.array(v) for v in vector_sequence]
     
-    print("recent", len(recent_vectors))
     differences = [calculate_vector_difference(recent_vectors[i], recent_vectors[i+1]) 
                    for i in range(len(recent_vectors)-1)]
     
-    print(len(differences))
     momentum = np.mean(differences, axis=0)
-    
-    print(momentum)
     return momentum
 
 def predict_next_vector(vector_sequence, window_size=2):

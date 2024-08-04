@@ -38,14 +38,12 @@ def fetch_businesses():
 
 def fetch_business_analytics(businessName):
     # Reference to the business document
-    print("enters")
     business_ref = db.collection('businesses').document(businessName)
     
     # Get the business document
     business_doc = business_ref.get()
     if business_doc.exists:
         business_data = business_doc.to_dict()
-        # print("Business data:", business_data)
     else:
         print("No such business!")
         return
@@ -70,12 +68,7 @@ def fetch_business_analytics(businessName):
     
     business_data['tasks'] = tasks_data
     
-    print("Business with tasks and nodes data:")
-    # print(business_data['tasks'])
-    tasks = business_data['tasks']
-    for task in tasks:
-       print(task)
-    return tasks
+    return business_data['tasks']
     
 def write_business_hist(business_id: str, data):
     biz_ref = db.collection('businesses').document(business_id)
@@ -87,12 +80,9 @@ def update_clicks_service(business_id: str, task_id: str, node_id: str, aligned_
 
   node = node_ref.get().to_dict()
   
-  print(node)
-
   if node:
       clicks = node["clicks"]
       
-      print(clicks)
       if aligned_time in clicks:
         # Increment the counts
         clicks[aligned_time] += 1
@@ -102,7 +92,6 @@ def update_clicks_service(business_id: str, task_id: str, node_id: str, aligned_
       else:
         clicks[aligned_time] = 1
         node_ref.update({'clicks': clicks})
-      print("Counts incremented successfully.")
   else:
       print("Document does not exist.")
 
@@ -123,7 +112,6 @@ def select_top_k_nodes(nodes, k):
     
     for node in nodes:
       score = node['click_count'] / (node['hits'] + 1)
-      print("score", score)
       scores.append((score, node))
     
     scores.sort(reverse=True, key=lambda x: x[0])
@@ -157,7 +145,6 @@ def extract_component(css_content, component_id):
     for rule in sheet:
       if rule.type == rule.STYLE_RULE:
         if rule.selectorText == f'.{component_id}' or rule.selectorText == component_id:
-            print(rule.selectorText)
             return rule.cssText.strip()
     
     return None
@@ -180,12 +167,11 @@ def get_css(business_id):
 
 def get_selected_css(business_id, task_id, node_id):
   node_ref = db.collection('businesses').document(business_id).collection('tasks').document(task_id).collection('nodes').document(node_id)
-  node = node_ref.get()
+  data = node_ref.get().to_dict()
 
-  if node.exists:
-    data = node.to_dict()
-    component_css = data.get('component_css')
-    print(component_css)
+
+  if data:
+    component_css = data['component_css']
 
     if component_css is not None:
         return component_css
