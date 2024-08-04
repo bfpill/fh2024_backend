@@ -24,6 +24,7 @@ async def create_vector(data):
 def calculate_vector_difference(v1, v2):
     return np.array(v2) - np.array(v1)
 
+# Back End E3
 def calculate_momentum(vector_sequence, window_size=2):
     
     if len(vector_sequence) < 1:

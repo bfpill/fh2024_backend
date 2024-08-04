@@ -240,9 +240,9 @@ async def get_business_info(businessName: str):
     return biz_data 
 
 
-# we need to change updates but yeah
+# Back End E2
+# this functions decides which css index to serve when the site is hit
 async def respond_to_site_hit(business_id, test_size=1, k_winners = 1):
-
   # we need to count clicks with timestamps
   b_data = fetch_business_hist(business_id)
   if not b_data: 
@@ -302,6 +302,18 @@ async def respond_to_site_hit(business_id, test_size=1, k_winners = 1):
   node_id = minimal_hit_node["node_id"] if minimal_hit_node else 0
   return index_css, current_task_id, node_id
 
+
+# Back End E1
+# this is the code that takes a parent node and generates the children nodes, aka the heart of the algorithm
+# we generate children first via prompt engineering to get similar but unique children to the parent
+# but, note, all of our generated css nodes (our evo algorithm uses a tree) store a high dimensional vector embedding
+# this lets us calculate the 'momentum', or the direction in vector space in which the successfull offspring have been moving
+# adding this momentum with the parent node lets us predict the vector embedding for a maximally successfull child
+# so we compare the predicted vector with the embeddings of the generated children and filter them on the k most similar to our predicted vector
+# this lets us bound our search and quickly reach the engagement peaks
+
+# as far as I know this is a novel approach. theoretically it is not too disimilar from more rigorous reinforcment / deep learning methods
+# that do proper gradient calculation. Over a large enough sample size we will certainly progress towards areas with low loss
 
 async def fork_test(businessName, task_id, nodes, fork_node): 
       b_data = fetch_business_hist(businessName)
