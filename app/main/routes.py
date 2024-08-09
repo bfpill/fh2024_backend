@@ -1,25 +1,23 @@
+import asyncio
 import json
+import random
 from app.main.data_handlers import extract_component, fetch_business_hist, round_to_nearest_interval, select_top_k_nodes, write_business_hist, update_clicks_service, update_hits_service, fetch_business_analytics, get_selected_css, fetch_businesses
 from fastapi import APIRouter, status, HTTPException, Request
 from logging import getLogger
 from app.main.settings import Settings
 from app.main.types import *
 from app.main.settings import getOpenai
-from uuid import uuid4
-import time
-from github import Github, GithubException
-import os
+from github import Github
 from app.main.git import get_branch_sha, get_file_sha, create_branch, create_pull_request
-
-from openai import AsyncOpenAI
-
 from app.main.vector_handlers import create_vector, get_closest_components, predict_next_vector
 
-client = AsyncOpenAI()
-
+import time
+from openai import AsyncOpenAI
 from firebase_admin import firestore
-db = firestore.client()
 
+
+db = firestore.client()
+client = AsyncOpenAI()
 router = APIRouter()
 logger = getLogger()
 client = getOpenai()
@@ -34,21 +32,25 @@ async def handle_page_request():
   except Exception as e: 
     raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
     
+
 @router.get('/test/{business_id}')
 async def handle_page_request(business_id):
-  
+
   # we need to see if we are in the middle of a test or are going to start a new one
   # so some function for that
   # if we aren't in the middle of one we need to start one
   # we can probably abstract that all away to one function
   try:
-    css_file, task_id, node_id = await respond_to_site_hit(business_id)
+    css_file, task_id, node_id, changed_class = await respond_to_site_hit(business_id)
+    print("Hit node: , adding hits", task_id, node_id)
+    await update_hits(business_id, task_id, node_id)
 
   except Exception as e: 
-    # logger.error(f"Error retrieving user books: {e}")
+    logger.error(f"Error handling Page Request: {e}")
     raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
     
-  return {"css_file": css_file, "task_id": task_id, "node_id":node_id}
+  return {"css_file": css_file, "task_id": task_id, "node_id":node_id, "changed_class": changed_class}
+
 
 @router.get('/analytics/{business_id}')
 def get_business_analytics(business_id):
@@ -71,7 +73,19 @@ async def delete_task(business_id: str, task_id: str):
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
+@router.post('/packet_engagement/{business_id}/{task_id}/{node_id}/{clicks}')
+async def packet_clicks(business_id, task_id, node_id, clicks: int):
+    try:
+        timestamp = time.time()
+        INTERVAL_MINUTES = 0.1 # this can be changed depending on what time intervals we want to show on the frontend
+        aligned_time = str(int(round_to_nearest_interval(timestamp, INTERVAL_MINUTES)))
+        update_clicks_service(business_id, task_id, node_id, aligned_time, clicks)
 
+        return {"message": "interactions incremented successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+      
+      
 @router.post('/clicks/{business_id}/{task_id}/{node_id}')
 async def update_clicks(business_id, task_id, node_id):
     try:
@@ -109,8 +123,6 @@ async def embed_css(business_id, task_id, node_id):
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
   
 
-
-
 # hardcoded for demo purposes
 GITHUB_TOKEN = settings.github_token
 GITHUB_REPO = 'bfpill/fh2024'
@@ -121,7 +133,7 @@ PATH_ON_GITHUB = f'src/{FILE_NAME}'
 COMMIT_MESSAGE = f'{FILE_NAME} added via Darwin #{int(time.time())}'
 TARGET_BRANCH = 'darwin'
 
-# Define the endpoint to upload the file
+
 @router.post("/upload")
 async def upload_file(request: Request):
     
@@ -138,8 +150,6 @@ async def upload_file(request: Request):
         file_sha = get_file_sha(repo, PATH_ON_GITHUB, TARGET_BRANCH)
 
         if file_sha:
-          # if file exists
-          # then update file
           decoded_content = file_content.decoded_content.decode()
           new_content = decoded_content + "\n" + component_css + "\n"
           repo.update_file(PATH_ON_GITHUB, COMMIT_MESSAGE, new_content, file_sha, branch="darwin")
@@ -173,6 +183,7 @@ async def sign_up_business(data: BusinessData):
         return {"message": "Business information successfully added", "businessId": new_doc_ref.id}
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
 
 @router.post('/start_ab_test')
 async def start_ab_test(task_info: TaskData):
@@ -242,7 +253,7 @@ async def get_business_info(businessName: str):
 
 # Back End E2
 # this functions decides which css index to serve when the site is hit
-async def respond_to_site_hit(business_id, test_size=1, k_winners = 1):
+async def respond_to_site_hit(business_id, test_size=10, k_winners = 1):
   # we need to count clicks with timestamps
   b_data = fetch_business_hist(business_id)
   if not b_data: 
@@ -260,7 +271,7 @@ async def respond_to_site_hit(business_id, test_size=1, k_winners = 1):
   task_ref = db.collection('businesses').document(business_id).collection('tasks').document(current_task_id)
   nodes_ref = task_ref.collection('nodes')
   
-  minimal_hit_node, minimal_hits = None, float('inf')
+  candidate_serve_nodes = []
 
   nodes = []
   for doc in nodes_ref.stream():
@@ -278,8 +289,8 @@ async def respond_to_site_hit(business_id, test_size=1, k_winners = 1):
       node_ref = task_ref.collection('nodes').document(node['node_id'])
       node_ref.set(node)
 
-    elif hits < minimal_hits:
-      minimal_hit_node = node
+    else:
+      candidate_serve_nodes.append(node)
       
     nodes.append(node)
   
@@ -288,19 +299,27 @@ async def respond_to_site_hit(business_id, test_size=1, k_winners = 1):
   # can generate the new AB test components before we actually reach the hit limit. 
   # so we'll have to try and guess which will win a little early and have a couple redundant serves. 
   # this should async update the A B test and when it is finished update the DB
-  if not minimal_hit_node:
+  
+
+  serve_node = None
+
+  # do we need some kind of segmenting for depth here so we aren't going through them all? not sure
+  if not candidate_serve_nodes:
     winners = select_top_k_nodes(nodes, k_winners)
 
     for node in winners: 
       await fork_test(business_id, current_task_id, nodes, node)
-    
+
   else: 
-    index_css += minimal_hit_node["component_css"]
+    serve_node = random.choice(candidate_serve_nodes)
+    index_css += serve_node["component_css"]
 
   write_business_hist(business_id, b_data)
   
-  node_id = minimal_hit_node["node_id"] if minimal_hit_node else 0
-  return index_css, current_task_id, node_id
+  node_id = serve_node["node_id"] if serve_node else "0"
+  changed_comp = serve_node["component_css"] if serve_node else ""
+  
+  return index_css, current_task_id, node_id, changed_comp
 
 
 # Back End E1
@@ -371,7 +390,7 @@ async def fork_test(businessName, task_id, nodes, fork_node):
                 "children": firestore.ArrayUnion([node['node_id'] for node in new_nodes])
             })
 
-            await batch.commit()
+            batch.commit()
 
             print(f"Fork test completed for business: {businessName}, task: {task_id}")
             return new_nodes
@@ -379,6 +398,7 @@ async def fork_test(businessName, task_id, nodes, fork_node):
             return None
       except Exception as e:
         print("Fork Node failed: ", e)
+
 
 
 # we need to implement a tree and eliminate all but top k
@@ -458,7 +478,7 @@ async def generate_new_components(goals, parent_node_css, negative_examples, num
     Please only change these variables: 
         {changeableVars}
     Ensure that you do not make something that is similar to any of: 
-        {str(negative_examples)}
+        {str(negative_examples[:4])}
     Keep the classname exactly the same as the original.
     Be as creative as possible with the design while adhering to these guidelines.'''
     
@@ -472,7 +492,7 @@ async def generate_new_components(goals, parent_node_css, negative_examples, num
                 "content": prompt
             }],
             model="gpt-4-0125-preview",
-            temperature=0.75
+            temperature=0.9
         )
 
         # Assuming the completion.choices[0].message.content is a JSON string

@@ -17,6 +17,7 @@ cssutils = "^2.11.1"
 pinecone = "^5.0.0"
 numpy = "^2.0.1"
 pygithub = "^2.3.0"
+grpcio = "1.60.1"
 
 
 [build-system]

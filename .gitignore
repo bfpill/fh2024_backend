@@ -13,6 +13,7 @@ scripts/test_forms/*
 scripts/test_responses/*
 app/firebase_secret.txt
 app/firebase_secret.json
+app/firebase_config/*
 poetry.lock
 poetry.lock
 poetry.lock

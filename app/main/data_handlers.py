@@ -37,10 +37,8 @@ def fetch_businesses():
     return documents_list
 
 def fetch_business_analytics(businessName):
-    # Reference to the business document
     business_ref = db.collection('businesses').document(businessName)
     
-    # Get the business document
     business_doc = business_ref.get()
     if business_doc.exists:
         business_data = business_doc.to_dict()
@@ -48,7 +46,6 @@ def fetch_business_analytics(businessName):
         print("No such business!")
         return
 
-    # Reference to the tasks subcollection
     tasks_ref = business_ref.collection('tasks')
     tasks_docs = tasks_ref.stream()
     
@@ -57,7 +54,6 @@ def fetch_business_analytics(businessName):
         task_data = task.to_dict()
         task_id = task.id
 
-        # Reference to the nodes subcollection for each task
         nodes_ref = tasks_ref.document(task_id).collection('nodes')
         nodes_docs = nodes_ref.stream()
         
@@ -73,8 +69,9 @@ def fetch_business_analytics(businessName):
 def write_business_hist(business_id: str, data):
     biz_ref = db.collection('businesses').document(business_id)
     biz_ref.set(data)
+  
 
-def update_clicks_service(business_id: str, task_id: str, node_id: str, aligned_time: str):
+def update_clicks_service(business_id: str, task_id: str, node_id: str, aligned_time: str, num_clicks: int =1):
   biz_ref = db.collection('businesses').document(business_id)
   node_ref = biz_ref.collection('tasks').document(task_id).collection('nodes').document(node_id)
 
@@ -84,19 +81,17 @@ def update_clicks_service(business_id: str, task_id: str, node_id: str, aligned_
       clicks = node["clicks"]
       
       if aligned_time in clicks:
-        # Increment the counts
-        clicks[aligned_time] += 1
-        # Update the document with modified clicks dictionary
+        clicks[aligned_time] += num_clicks
         node_ref.update({'clicks': clicks})
         
       else:
-        clicks[aligned_time] = 1
+        clicks[aligned_time] = num_clicks
         node_ref.update({'clicks': clicks})
   else:
       print("Document does not exist.")
 
   node_ref.update({
-      "click_count": node["click_count"] + 1
+      "click_count": node["click_count"] + num_clicks
   })
 
 def update_hits_service(business_id: str, task_id: str, node_id: str):
@@ -104,7 +99,6 @@ def update_hits_service(business_id: str, task_id: str, node_id: str):
   node_ref.update({
       "hits": firestore.Increment(1)
   })
-  
   
 def select_top_k_nodes(nodes, k):
     winning_nodes = []
